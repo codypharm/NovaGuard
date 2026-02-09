@@ -46,12 +46,17 @@ def image_intake_node(state: PatientState) -> dict:
 
 def text_intake_node(state: PatientState) -> dict:
     """
-    Parse typed prescription text.
+    Parse typed prescription text OR natural language queries.
     
-    This node uses simple text parsing (no AI needed).
-    Expects format like: "Lisinopril 10mg once daily"
+    Handles two types of input:
+    1. Prescription format: "Lisinopril 10mg once daily"
+    2. Natural language query: "is patient allergic to paracetamol"
+    
+    If it's a query (contains "allergic", "allergy", "check"), it will:
+    - Extract the drug name
+    - Mark it as a safety check query (not a new prescription)
     """
-    print("⌨️ Text Intake: Parsing typed prescription...")
+    print("⌨️ Text Intake: Parsing typed input...")
     
     text = state["prescription_text"]
     if not text:
@@ -61,7 +66,54 @@ def text_intake_node(state: PatientState) -> dict:
             "messages": ["❌ No text provided"]
         }
     
-    # Simple regex parsing (you can make this more sophisticated)
+    text_lower = text.lower()
+    
+    # ========================================================================
+    # Check if this is a QUERY (not a prescription)
+    # ========================================================================
+    query_keywords = ["allergic", "allergy", "check", "does", "is", "has"]
+    is_query = any(keyword in text_lower for keyword in query_keywords)
+    
+    if is_query:
+        # Extract drug name from query
+        drug_patterns = [
+            r"allergic to\s+(\w+)",
+            r"allergy to\s+(\w+)",
+            r"has\s+(\w+)\s+allergy",
+            r"check\s+(\w+)",
+        ]
+        
+        drug_name = None
+        for pattern in drug_patterns:
+            match = re.search(pattern, text_lower)
+            if match:
+                drug_name = match.group(1)
+                break
+        
+        if drug_name:
+            # This is a safety check query, not a new prescription
+            extracted = PrescriptionData(
+                drug_name=drug_name,
+                dose="N/A",  # Not a prescription
+                frequency="N/A",
+                notes=f"Safety check query: {text}"
+            )
+            
+            return {
+                "extracted_data": extracted,
+                "confidence_score": 1.0,
+                "messages": [f"🔍 Query detected: Checking {drug_name} safety for patient"]
+            }
+        else:
+            return {
+                "extracted_data": None,
+                "confidence_score": 0.0,
+                "messages": ["❌ Could not extract drug name from query"]
+            }
+    
+    # ========================================================================
+    # Otherwise, parse as PRESCRIPTION
+    # ========================================================================
     # Pattern: drug_name dose frequency
     pattern = r"(\w+)\s+(\d+(?:\.\d+)?(?:mg|ml|g))\s+(.+)"
     match = re.match(pattern, text, re.IGNORECASE)
@@ -78,13 +130,13 @@ def text_intake_node(state: PatientState) -> dict:
         return {
             "extracted_data": extracted,
             "confidence_score": confidence,
-            "messages": [f"✅ Parsed: {extracted.drug_name} {extracted.dose}"]
+            "messages": [f"✅ Parsed prescription: {extracted.drug_name} {extracted.dose}"]
         }
     else:
         return {
             "extracted_data": None,
             "confidence_score": 0.0,
-            "messages": ["❌ Could not parse text. Expected format: 'DrugName Dose Frequency'"]
+            "messages": ["❌ Could not parse text. Expected format: 'DrugName Dose Frequency' or a natural language query"]
         }
 
 
