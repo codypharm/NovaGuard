@@ -248,31 +248,55 @@ class OpenFDAClient:
         Run all comprehensive safety checks.
         
         This is the main function called by the openfda_node.
+        Now includes RxNorm normalization step for better accuracy.
         """
+        from nova_guard.services.rxnorm import rxnorm_client
+        
         all_flags = []
         
         print(f"💊 Running OpenFDA checks for: {drug_name}")
         
-        # Core safety checks (always run)
-        all_flags.extend(await self.check_boxed_warning(drug_name))
-        all_flags.extend(await self.check_contraindications(drug_name))
-        all_flags.extend(await self.check_drug_interactions(drug_name))
-        all_flags.extend(await self.check_adverse_reactions(drug_name))
-        all_flags.extend(await self.check_warnings_and_cautions(drug_name))
+        # Step 1: Normalize Drug Name (RxNorm)
+        check_name = drug_name
+        try:
+            normalization = await rxnorm_client.normalize_drug_name(drug_name)
+            if normalization["success"]:
+                rxnorm_name = normalization.get("preferred_name") or normalization.get("generic_name")
+                if rxnorm_name:
+                    print(f"✅ Normalized '{drug_name}' -> '{rxnorm_name}' (RxCUI: {normalization['rxcui']})")
+                    check_name = rxnorm_name
+                
+                # Add informational flag about normalization
+                # This helps the pharmacist know what was actually checked
+                all_flags.append(SafetyFlag(
+                    severity="info",
+                    category="normalization",
+                    message=f"Drug normalized to '{check_name}' (RxNorm ID: {normalization['rxcui']})",
+                    source="RxNorm"
+                ))
+        except Exception as e:
+            print(f"⚠️ RxNorm normalization failed: {e}")
+        
+        # Core safety checks (always run with normalized name)
+        all_flags.extend(await self.check_boxed_warning(check_name))
+        all_flags.extend(await self.check_contraindications(check_name))
+        all_flags.extend(await self.check_drug_interactions(check_name))
+        all_flags.extend(await self.check_adverse_reactions(check_name))
+        all_flags.extend(await self.check_warnings_and_cautions(check_name))
         
         # Patient-specific checks (conditional)
         if patient_profile.get("is_pregnant"):
-            all_flags.extend(await self.check_pregnancy_safety(drug_name))
+            all_flags.extend(await self.check_pregnancy_safety(check_name))
         
         if patient_profile.get("is_nursing"):
-            all_flags.extend(await self.check_nursing_safety(drug_name))
+            all_flags.extend(await self.check_nursing_safety(check_name))
         
         if patient_profile.get("age_years"):
             age = patient_profile["age_years"]
             if age < 18:
-                all_flags.extend(await self.check_pediatric_use(drug_name))
+                all_flags.extend(await self.check_pediatric_use(check_name))
             elif age >= 65:
-                all_flags.extend(await self.check_geriatric_use(drug_name))
+                all_flags.extend(await self.check_geriatric_use(check_name))
         
         print(f"✅ OpenFDA checks complete: {len(all_flags)} flag(s) found")
         
