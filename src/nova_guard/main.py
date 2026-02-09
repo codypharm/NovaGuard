@@ -216,3 +216,26 @@ async def process_prescription(
         "messages": final_result.get("messages", []),
         "extracted_data": final_result.get("extracted_data"),
     }
+
+
+# ============================================================================
+# Natural Language Query Endpoint
+# ============================================================================
+
+@app.get("/query")
+async def natural_language_query(
+    q: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Natural language query interface for patient safety checks.
+    
+    Examples:
+    - GET /query?q=is patient 1 allergic to paracetamol
+    - GET /query?q=does john doe id 123 have penicillin allergy
+    - GET /query?q=check if patient 1 has aspirin allergy
+    """
+    from nova_guard.services.nlp import parse_allergy_query
+    
+    result = await parse_allergy_query(q, db)
+    return result
