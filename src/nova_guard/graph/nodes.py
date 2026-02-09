@@ -1,0 +1,314 @@
+"""LangGraph nodes for prescription processing workflow."""
+
+import re
+from typing import Optional
+
+from nova_guard.graph.state import PatientState
+from nova_guard.schemas.patient import PrescriptionData
+
+
+# ============================================================================
+# INTAKE NODES - Handle different input modalities
+# ============================================================================
+
+def image_intake_node(state: PatientState) -> dict:
+    """
+    Extract prescription data from handwritten image.
+    
+    Phase 1: Mock implementation (returns dummy data)
+    Phase 2: Will use Amazon Nova 2 Lite via Bedrock
+    
+    In production, this would:
+    1. Send image to Nova 2 Lite
+    2. Use multimodal reasoning to extract drug, dose, frequency
+    3. Return confidence score (0-1)
+    """
+    print("📷 Image Intake: Processing handwritten prescription...")
+    
+    # Mock extraction (Phase 1)
+    extracted = PrescriptionData(
+        drug_name="Lisinopril",
+        dose="10mg",
+        frequency="once daily",
+        prescriber="Dr. Smith",
+        notes="Mock extraction from image"
+    )
+    
+    # Mock confidence (in production, Nova 2 Lite provides this)
+    confidence = 0.95
+    
+    return {
+        "extracted_data": extracted,
+        "confidence_score": confidence,
+        "messages": [f"✅ Extracted from image: {extracted.drug_name} {extracted.dose}"]
+    }
+
+
+def text_intake_node(state: PatientState) -> dict:
+    """
+    Parse typed prescription text.
+    
+    This node uses simple text parsing (no AI needed).
+    Expects format like: "Lisinopril 10mg once daily"
+    """
+    print("⌨️ Text Intake: Parsing typed prescription...")
+    
+    text = state["prescription_text"]
+    if not text:
+        return {
+            "extracted_data": None,
+            "confidence_score": 0.0,
+            "messages": ["❌ No text provided"]
+        }
+    
+    # Simple regex parsing (you can make this more sophisticated)
+    # Pattern: drug_name dose frequency
+    pattern = r"(\w+)\s+(\d+(?:\.\d+)?(?:mg|ml|g))\s+(.+)"
+    match = re.match(pattern, text, re.IGNORECASE)
+    
+    if match:
+        extracted = PrescriptionData(
+            drug_name=match.group(1),
+            dose=match.group(2),
+            frequency=match.group(3),
+            notes="Parsed from text input"
+        )
+        confidence = 1.0  # Text parsing is deterministic
+        
+        return {
+            "extracted_data": extracted,
+            "confidence_score": confidence,
+            "messages": [f"✅ Parsed: {extracted.drug_name} {extracted.dose}"]
+        }
+    else:
+        return {
+            "extracted_data": None,
+            "confidence_score": 0.0,
+            "messages": ["❌ Could not parse text. Expected format: 'DrugName Dose Frequency'"]
+        }
+
+
+def voice_intake_node(state: PatientState) -> dict:
+    """
+    Convert voice to text and extract prescription.
+    
+    Phase 1: Mock implementation
+    Phase 2: Will use Amazon Nova 2 Sonic via Bedrock
+    
+    In production, this would:
+    1. Send audio to Nova 2 Sonic
+    2. Get speech-to-text transcription
+    3. Parse the transcription
+    """
+    print("🎤 Voice Intake: Processing voice prescription...")
+    
+    # Mock extraction (Phase 1)
+    extracted = PrescriptionData(
+        drug_name="Metformin",
+        dose="500mg",
+        frequency="twice daily",
+        notes="Mock extraction from voice"
+    )
+    
+    confidence = 0.92
+    
+    return {
+        "extracted_data": extracted,
+        "confidence_score": confidence,
+        "messages": [f"✅ Transcribed from voice: {extracted.drug_name} {extracted.dose}"]
+    }
+
+
+# ============================================================================
+# ROUTER NODE - Directs to correct intake node
+# ============================================================================
+
+def route_input(state: PatientState) -> str:
+    """
+    Route to the appropriate intake node based on input_type.
+    
+    Returns the name of the next node to execute.
+    """
+    input_type = state["input_type"]
+    
+    routing = {
+        "image": "image_intake",
+        "text": "text_intake",
+        "voice": "voice_intake"
+    }
+    
+    next_node = routing.get(input_type)
+    print(f"🔀 Routing to {next_node} node...")
+    
+    return next_node
+
+
+# ============================================================================
+# PROCESSING NODES - Fetch patient data and run safety checks
+# ============================================================================
+
+async def fetch_patient_node(state: PatientState) -> dict:
+    """
+    Fetch patient profile from database.
+    
+    This retrieves:
+    - Patient demographics
+    - Current medications (drug_history)
+    - Allergies
+    - Adverse reactions
+    """
+    from nova_guard.database import AsyncSessionLocal
+    from nova_guard.api.patients import get_patient
+    
+    print(f"🔍 Fetching patient profile for ID: {state['patient_id']}...")
+    
+    async with AsyncSessionLocal() as db:
+        patient = await get_patient(db, state["patient_id"])
+        
+        if not patient:
+            return {
+                "patient_profile": None,
+                "messages": [f"❌ Patient ID {state['patient_id']} not found"]
+            }
+        
+        # Convert to dict for state
+        profile = {
+            "id": patient.id,
+            "name": patient.name,
+            "age_years": patient.age_years,
+            "is_pregnant": patient.is_pregnant,
+            "is_nursing": patient.is_nursing,
+            "egfr": patient.egfr,
+            "current_drugs": [
+                {"drug_name": d.drug_name, "dose": d.dose, "frequency": d.frequency}
+                for d in patient.drug_history if d.is_active
+            ],
+            "allergies": [
+                {"allergen": a.allergen, "type": a.allergy_type, "severity": a.severity}
+                for a in patient.allergies
+            ],
+            "adverse_reactions": [
+                {"drug_name": r.drug_name, "symptoms": r.symptoms, "severity": r.severity}
+                for r in patient.adverse_reactions
+            ]
+        }
+        
+        return {
+            "patient_profile": profile,
+            "messages": [f"✅ Loaded profile for {patient.name} (Age: {patient.age_years})"]
+        }
+
+
+def auditor_node(state: PatientState) -> dict:
+    """
+    Cross-reference new prescription against patient history.
+    
+    This is a preliminary check before OpenFDA:
+    - Check if drug is in patient's allergy list
+    - Check if patient had adverse reactions to this drug before
+    - Check for duplicate medications
+    """
+    from nova_guard.schemas.patient import SafetyFlag
+    
+    print("🔬 Auditing prescription against patient history...")
+    
+    flags = []
+    extracted = state["extracted_data"]
+    profile = state["patient_profile"]
+    
+    if not extracted or not profile:
+        return {"safety_flags": flags}
+    
+    drug_name = extracted.drug_name.lower()
+    
+    # Check allergies
+    for allergy in profile.get("allergies", []):
+        if drug_name in allergy["allergen"].lower():
+            flags.append(SafetyFlag(
+                severity="critical",
+                category="allergy",
+                message=f"Patient is allergic to {allergy['allergen']} ({allergy['severity']})",
+                source="Patient History"
+            ))
+    
+    # Check adverse reactions
+    for reaction in profile.get("adverse_reactions", []):
+        if drug_name in reaction["drug_name"].lower():
+            flags.append(SafetyFlag(
+                severity="warning",
+                category="adverse_reaction",
+                message=f"Patient had {reaction['severity']} reaction to {reaction['drug_name']}: {reaction['symptoms']}",
+                source="Patient History"
+            ))
+    
+    # Check for duplicates
+    for current_drug in profile.get("current_drugs", []):
+        if drug_name in current_drug["drug_name"].lower():
+            flags.append(SafetyFlag(
+                severity="warning",
+                category="duplicate_medication",
+                message=f"Patient is already taking {current_drug['drug_name']} {current_drug['dose']}",
+                source="Patient History"
+            ))
+    
+    return {
+        "safety_flags": flags,
+        "messages": [f"🔬 Auditor found {len(flags)} flag(s)"]
+    }
+
+
+def openfda_node(state: PatientState) -> dict:
+    """
+    Run comprehensive safety checks via OpenFDA.
+    
+    Phase 1: Placeholder (will implement in Step 1.5)
+    Phase 2: Full 16+ checks against OpenFDA Drug Label API
+    """
+    print("💊 Running OpenFDA safety checks...")
+    
+    # Placeholder for Step 1.5
+    return {
+        "messages": ["⏳ OpenFDA checks (to be implemented in Step 1.5)"]
+    }
+
+
+def verdict_node(state: PatientState) -> dict:
+    """
+    Generate final safety verdict based on all flags.
+    
+    Verdict levels:
+    - GREEN: No safety concerns
+    - YELLOW: Minor warnings, proceed with caution
+    - RED: Critical issues, do NOT dispense
+    """
+    from nova_guard.schemas.patient import SafetyVerdict
+    
+    print("⚖️ Generating safety verdict...")
+    
+    flags = state.get("safety_flags", [])
+    
+    # Determine verdict status
+    has_critical = any(f.severity == "critical" for f in flags)
+    has_warning = any(f.severity == "warning" for f in flags)
+    
+    if has_critical:
+        status = "red"
+        recommendation = "DO NOT DISPENSE - Critical safety issues detected"
+    elif has_warning:
+        status = "yellow"
+        recommendation = "PROCEED WITH CAUTION - Review warnings with patient"
+    else:
+        status = "green"
+        recommendation = "SAFE TO DISPENSE - No safety concerns detected"
+    
+    verdict = SafetyVerdict(
+        status=status,
+        flags=flags,
+        recommendation=recommendation,
+        confidence_score=state.get("confidence_score", 0.0)
+    )
+    
+    return {
+        "verdict": verdict,
+        "messages": [f"⚖️ Verdict: {status.upper()} - {recommendation}"]
+    }

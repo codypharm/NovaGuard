@@ -158,3 +158,61 @@ async def add_adverse_reaction(
     # Override patient_id from path
     reaction.patient_id = patient_id
     return await patient_crud.add_adverse_reaction(db, reaction)
+
+
+# ============================================================================
+# Prescription Processing Endpoint (LangGraph Workflow)
+# ============================================================================
+
+@app.post("/prescriptions/process")
+async def process_prescription(
+    input_type: str,
+    patient_id: int,
+    prescription_text: str | None = None,
+):
+    """
+    Process a prescription through the safety auditing workflow.
+    
+    Phase 1: Text input only (image and voice are mocked)
+    
+    Example:
+    POST /prescriptions/process?input_type=text&patient_id=1
+    Body: "Lisinopril 10mg once daily"
+    """
+    from nova_guard.graph.workflow import prescription_workflow
+    
+    # Initialize state
+    initial_state = {
+        "input_type": input_type,
+        "patient_id": patient_id,
+        "prescription_text": prescription_text,
+        "prescription_image": None,
+        "prescription_audio": None,
+        "extracted_data": None,
+        "confidence_score": 0.0,
+        "patient_profile": None,
+        "safety_flags": [],
+        "verdict": None,
+        "human_confirmed": False,
+        "messages": []
+    }
+    
+    # Run workflow (will pause at HITL interrupt)
+    config = {"configurable": {"thread_id": "test-thread"}}
+    
+    # Step 1: Run until interrupt
+    result = await prescription_workflow.ainvoke(initial_state, config)
+    
+    # In a real app, you'd return the extracted data here for human review
+    # Then the human would call a separate endpoint to continue
+    
+    # For Phase 1 demo, we'll auto-continue (skip HITL)
+    result["human_confirmed"] = True
+    final_result = await prescription_workflow.ainvoke(None, config)
+    
+    return {
+        "status": "completed",
+        "verdict": final_result.get("verdict"),
+        "messages": final_result.get("messages", []),
+        "extracted_data": final_result.get("extracted_data"),
+    }
