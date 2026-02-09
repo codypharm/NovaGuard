@@ -11,36 +11,41 @@ from nova_guard.schemas.patient import PrescriptionData
 # INTAKE NODES - Handle different input modalities
 # ============================================================================
 
-def image_intake_node(state: PatientState) -> dict:
+async def image_intake_node(state: PatientState) -> dict:
     """
-    Extract prescription data from handwritten image.
-    
-    Phase 1: Mock implementation (returns dummy data)
-    Phase 2: Will use Amazon Nova 2 Lite via Bedrock
-    
-    In production, this would:
-    1. Send image to Nova 2 Lite
-    2. Use multimodal reasoning to extract drug, dose, frequency
-    3. Return confidence score (0-1)
+    Extract prescription data from handwritten image using Amazon Nova Lite.
     """
-    print("📷 Image Intake: Processing handwritten prescription...")
+    from nova_guard.services.bedrock import bedrock_client
     
-    # Mock extraction (Phase 1)
-    extracted = PrescriptionData(
-        drug_name="Lisinopril",
-        dose="10mg",
-        frequency="once daily",
-        prescriber="Dr. Smith",
-        notes="Mock extraction from image"
-    )
+    print("📷 Image Intake: Processing prescription via Nova Lite...")
+    image_bytes = state.get("prescription_image")
     
-    # Mock confidence (in production, Nova 2 Lite provides this)
-    confidence = 0.95
+    if not image_bytes:
+        return {"messages": ["❌ Error: No image provided"]}
+        
+    extracted = await bedrock_client.process_image(image_bytes)
     
+    if not extracted:
+        # Fallback for Phase 2 if credentials fail
+        print("⚠️ Bedrock processing failed, falling back to mock (for demo continuity)")
+        extracted = PrescriptionData(
+            drug_name="Lisinopril",
+            dose="10mg",
+            frequency="once daily",
+            prescriber="Dr. Smith (Mock - Bedrock Failed)",
+            notes="Fallback extraction"
+        )
+        return {
+            "extracted_data": extracted,
+            "input_type": "image",
+            "messages": ["⚠️ Image analysis failed (Check AWS Creds), using Mock"]
+        }
+        
     return {
         "extracted_data": extracted,
-        "confidence_score": confidence,
-        "messages": [f"✅ Extracted from image: {extracted.drug_name} {extracted.dose}"]
+        "input_type": "image",
+        "confidence_score": 0.95, # Nova Lite doesn't give a score easily, assume high if success
+        "messages": ["✅ Image analysis complete (Nova Lite)"]
     }
 
 

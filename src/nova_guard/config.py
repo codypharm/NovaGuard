@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     # Application
     log_level: str = "INFO"
     environment: str = "development"
+    
+    # AWS
+    aws_region: str = "us-east-1"
 
     model_config = SettingsConfigDict(
         env_file=".env",
