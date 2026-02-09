@@ -54,95 +54,88 @@ class OpenFDAClient:
         if isinstance(value, list):
             return " ".join(value)
         return value
+
+    def _get_citation(self, label: dict) -> Optional[str]:
+        """Generate DailyMed citation URL from SPL Set ID."""
+        openfda = label.get("openfda", {})
+        # openfda fields are lists, take the first one
+        spl_set_id = openfda.get("spl_set_id", [None])[0]
+        
+        if spl_set_id:
+            return f"https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid={spl_set_id}"
+        return "https://open.fda.gov/"
     
     # ========================================================================
     # CORE SAFETY CHECKS
     # ========================================================================
     
-    async def check_boxed_warning(self, drug_name: str) -> List[SafetyFlag]:
+    # ========================================================================
+    # CORE SAFETY CHECKS
+    # ========================================================================
+    
+    async def check_boxed_warning(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check for FDA Black Box warnings (most serious)."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         boxed_warning = self._extract_field(label, "boxed_warning")
+        
         if boxed_warning:
             flags.append(SafetyFlag(
                 severity="critical",
                 category="boxed_warning",
                 message=f"⚫ BLACK BOX WARNING: {boxed_warning[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_contraindications(self, drug_name: str) -> List[SafetyFlag]:
-        """Check for contraindications (conditions where drug must NOT be used)."""
-        label = await self.get_drug_label(drug_name)
+    async def check_contraindications(self, label: dict, citation: str) -> List[SafetyFlag]:
+        """Check for contraindications."""
         flags = []
-        
-        if not label:
-            return flags
-        
         contraindications = self._extract_field(label, "contraindications")
+        
         if contraindications:
             flags.append(SafetyFlag(
                 severity="critical",
                 category="contraindication",
                 message=f"⛔ CONTRAINDICATION: {contraindications[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_drug_interactions(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_drug_interactions(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check for known drug interactions."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         interactions = self._extract_field(label, "drug_interactions")
+        
         if interactions:
             flags.append(SafetyFlag(
                 severity="warning",
                 category="drug_interaction",
                 message=f"💊 DRUG INTERACTIONS: {interactions[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_adverse_reactions(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_adverse_reactions(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check for known adverse reactions."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         adverse = self._extract_field(label, "adverse_reactions")
+        
         if adverse:
             flags.append(SafetyFlag(
                 severity="info",
                 category="adverse_reaction",
                 message=f"⚠️ ADVERSE REACTIONS: {adverse[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_warnings_and_cautions(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_warnings_and_cautions(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check for general warnings and cautions."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         warnings = self._extract_field(label, "warnings_and_cautions") or \
                    self._extract_field(label, "warnings")
         
@@ -151,23 +144,18 @@ class OpenFDAClient:
                 severity="warning",
                 category="warning",
                 message=f"⚠️ WARNINGS: {warnings[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
     # ========================================================================
     # PATIENT-SPECIFIC CHECKS
     # ========================================================================
     
-    async def check_pregnancy_safety(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_pregnancy_safety(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check pregnancy safety warnings."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         pregnancy = self._extract_field(label, "pregnancy") or \
                     self._extract_field(label, "pregnancy_or_breast_feeding") or \
                     self._extract_field(label, "teratogenic_effects")
@@ -177,66 +165,51 @@ class OpenFDAClient:
                 severity="warning",
                 category="pregnancy",
                 message=f"🤰 PREGNANCY: {pregnancy[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_nursing_safety(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_nursing_safety(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check safety for nursing mothers."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         nursing = self._extract_field(label, "nursing_mothers")
         if nursing:
             flags.append(SafetyFlag(
                 severity="warning",
                 category="nursing",
                 message=f"🤱 NURSING: {nursing[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_pediatric_use(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_pediatric_use(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check pediatric use warnings."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         pediatric = self._extract_field(label, "pediatric_use")
         if pediatric:
             flags.append(SafetyFlag(
                 severity="info",
                 category="pediatric",
                 message=f"👶 PEDIATRIC: {pediatric[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
-    async def check_geriatric_use(self, drug_name: str) -> List[SafetyFlag]:
+    async def check_geriatric_use(self, label: dict, citation: str) -> List[SafetyFlag]:
         """Check geriatric use considerations."""
-        label = await self.get_drug_label(drug_name)
         flags = []
-        
-        if not label:
-            return flags
-        
         geriatric = self._extract_field(label, "geriatric_use")
         if geriatric:
             flags.append(SafetyFlag(
                 severity="info",
                 category="geriatric",
                 message=f"👴 GERIATRIC: {geriatric[:200]}...",
-                source="OpenFDA"
+                source="OpenFDA",
+                citation=citation
             ))
-        
         return flags
     
     # ========================================================================
@@ -247,8 +220,11 @@ class OpenFDAClient:
         """
         Run all comprehensive safety checks.
         
-        This is the main function called by the openfda_node.
-        Now includes RxNorm normalization step for better accuracy.
+        Main entry point that:
+        1. Normalizes drug name (RxNorm)
+        2. Fetches OpenFDA label (once)
+        3. Generates citation
+        4. Runs all check methods with cached label
         """
         from nova_guard.services.rxnorm import rxnorm_client
         
@@ -260,43 +236,57 @@ class OpenFDAClient:
         check_name = drug_name
         try:
             normalization = await rxnorm_client.normalize_drug_name(drug_name)
+            rxnorm_citation = None
+            
             if normalization["success"]:
                 rxnorm_name = normalization.get("preferred_name") or normalization.get("generic_name")
                 if rxnorm_name:
                     print(f"✅ Normalized '{drug_name}' -> '{rxnorm_name}' (RxCUI: {normalization['rxcui']})")
                     check_name = rxnorm_name
                 
-                # Add informational flag about normalization
-                # This helps the pharmacist know what was actually checked
+                # RxNorm citation
+                if normalization.get("rxcui"):
+                     rxnorm_citation = f"https://rxnav.nlm.nih.gov/REST/rxcui/{normalization['rxcui']}"
+                
                 all_flags.append(SafetyFlag(
                     severity="info",
                     category="normalization",
                     message=f"Drug normalized to '{check_name}' (RxNorm ID: {normalization['rxcui']})",
-                    source="RxNorm"
+                    source="RxNorm",
+                    citation=rxnorm_citation
                 ))
         except Exception as e:
             print(f"⚠️ RxNorm normalization failed: {e}")
         
-        # Core safety checks (always run with normalized name)
-        all_flags.extend(await self.check_boxed_warning(check_name))
-        all_flags.extend(await self.check_contraindications(check_name))
-        all_flags.extend(await self.check_drug_interactions(check_name))
-        all_flags.extend(await self.check_adverse_reactions(check_name))
-        all_flags.extend(await self.check_warnings_and_cautions(check_name))
+        # Step 2: Fetch OpenFDA Label ONCE
+        label = await self.get_drug_label(check_name)
+        if not label:
+            print(f"⚠️ No OpenFDA label found for '{check_name}'")
+            return all_flags
+            
+        # Step 3: Get Citation
+        citation = self._get_citation(label)
         
-        # Patient-specific checks (conditional)
+        # Step 4: Run Checks with Cached Label
+        all_flags.extend(await self.check_boxed_warning(label, citation))
+        all_flags.extend(await self.check_contraindications(label, citation))
+        all_flags.extend(await self.check_drug_interactions(label, citation))
+        all_flags.extend(await self.check_adverse_reactions(label, citation))
+        all_flags.extend(await self.check_warnings_and_cautions(label, citation))
+        
+        # Patient-specific checks
         if patient_profile.get("is_pregnant"):
-            all_flags.extend(await self.check_pregnancy_safety(check_name))
+            all_flags.extend(await self.check_pregnancy_safety(label, citation))
         
         if patient_profile.get("is_nursing"):
-            all_flags.extend(await self.check_nursing_safety(check_name))
+            all_flags.extend(await self.check_nursing_safety(label, citation))
         
         if patient_profile.get("age_years"):
             age = patient_profile["age_years"]
             if age < 18:
-                all_flags.extend(await self.check_pediatric_use(check_name))
+                all_flags.extend(await self.check_pediatric_use(label, citation))
             elif age >= 65:
-                all_flags.extend(await self.check_geriatric_use(check_name))
+                all_flags.extend(await self.check_geriatric_use(label, citation))
         
         print(f"✅ OpenFDA checks complete: {len(all_flags)} flag(s) found")
         

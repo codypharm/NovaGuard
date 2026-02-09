@@ -159,12 +159,14 @@ class PrescriptionInput(BaseModel):
 
 
 class SafetyFlag(BaseModel):
-    """Individual safety concern."""
-
+    """
+    Represents a specific safety concern identified during processing.
+    """
     severity: Literal["info", "warning", "critical"]
-    category: str  # e.g., "drug_interaction", "contraindication", "allergy"
+    category: str  # e.g., "allergy", "interaction", "contraindication"
     message: str
     source: str  # e.g., "OpenFDA", "Patient History"
+    citation: Optional[str] = None  # URL to source (DailyMed, PubMed, etc.)
 
 
 class SafetyVerdict(BaseModel):

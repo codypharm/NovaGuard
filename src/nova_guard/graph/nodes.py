@@ -70,12 +70,48 @@ def text_intake_node(state: PatientState) -> dict:
     
     # ========================================================================
     # Check if this is a QUERY (not a prescription)
-    # ========================================================================
-    query_keywords = ["allergic", "allergy", "check", "does", "is", "has"]
+    # ========================================================================    # Check if this is a QUERY or COMMAND
+    query_keywords = ["allergic", "allergy", "check", "does", "is", "has", "open", "show"]
     is_query = any(keyword in text_lower for keyword in query_keywords)
     
     if is_query:
-        # Extract drug name from query
+        # Check for "Open Source" command
+        if "open" in text_lower or "show" in text_lower:
+             # Basic extraction of drug name for the command
+             # "Open source for Aspirin" -> "Aspirin"
+             words = text.split()
+             # This is a naive extraction for Phase 1 demo
+             # A real system would use specific NER or the NLP service
+             potential_drug = words[-1] # Assume last word is drug for now, or use nlp service
+             
+             # Let's try to be a bit smarter if "for" is present
+             if "for" in words:
+                 try:
+                     for_index = words.index("for")
+                     potential_drug = " ".join(words[for_index+1:]).strip("?.!")
+                 except:
+                     pass
+            
+             if potential_drug:
+                 import webbrowser
+                 # Check if we can normalize it to get a good URL
+                 # Note: In a real async node we might fail here if we block, 
+                 # but webbrowser.open is fast enough for a demo or we should push to a separate tool.
+                 # For Phase 1, we'll just construct a search URL or use the logic if we had async access.
+                 # Since this is a sync node (currently), running async rxnorm is hard.
+                 # We will just open the OpenFDA search or DailyMed search for now.
+                 
+                 url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={potential_drug}"
+                 print(f"🖥️ Opening source for {potential_drug}: {url}")
+                 webbrowser.open(url)
+                 
+                 return {
+                     "input_type": "text",
+                     "prescription_text": text,
+                     "messages": [f"🚀 Opened DailyMed source for '{potential_drug}'"]
+                 }
+
+        # Use NLP service for structured allergy/safety queries
         drug_patterns = [
             r"allergic to\s+(\w+)",
             r"allergy to\s+(\w+)",
