@@ -309,18 +309,43 @@ def auditor_node(state: PatientState) -> dict:
     }
 
 
-def openfda_node(state: PatientState) -> dict:
+async def openfda_node(state: PatientState) -> dict:
     """
     Run comprehensive safety checks via OpenFDA.
     
-    Phase 1: Placeholder (will implement in Step 1.5)
-    Phase 2: Full 16+ checks against OpenFDA Drug Label API
+    16+ checks including:
+    - Boxed Warnings
+    - Contraindications
+    - Drug Interactions
+    - Pregnancy/Nursing Safety
+    - Pediatric/Geriatric Use
     """
+    from nova_guard.services.openfda import openfda_client
+    
     print("💊 Running OpenFDA safety checks...")
     
-    # Placeholder for Step 1.5
+    extracted = state.get("extracted_data")
+    profile = state.get("patient_profile")
+    
+    if not extracted or not profile:
+        return {
+            "safety_flags": [],
+            "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
+        }
+    
+    # Run all checks
+    flags = await openfda_client.run_all_checks(
+        drug_name=extracted.drug_name,
+        patient_profile=profile
+    )
+    
+    # Combine with existing flags (from auditor node)
+    existing_flags = state.get("safety_flags", [])
+    all_flags = existing_flags + flags
+    
     return {
-        "messages": ["⏳ OpenFDA checks (to be implemented in Step 1.5)"]
+        "safety_flags": all_flags,
+        "messages": [f"✅ OpenFDA checks complete: Found {len(flags)} new flag(s)"]
     }
 
 
