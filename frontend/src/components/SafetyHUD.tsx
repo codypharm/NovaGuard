@@ -4,7 +4,7 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 import { SafetyChat } from '@/components/SafetyChat'
 import { PatientForm } from '@/components/PatientForm'
 import { type Verdict } from '@/components/SafetyAnalysis'
-import { processPrescription, type Patient } from '@/services/api'
+import { processClinicalInteraction, type Patient } from '@/services/api'
 
 export function SafetyHUD() {
   const [isProcessing, setIsProcessing] = useState(false)
@@ -34,7 +34,7 @@ export function SafetyHUD() {
     setVerdict(null) 
     
     try {
-        const result = await processPrescription(currentPatient.id, text, file)
+        const result = await processClinicalInteraction(currentPatient.id, text, file)
         setVerdict(result.verdict as Verdict) 
     } catch (err) {
         console.error("Analysis Failed", err)

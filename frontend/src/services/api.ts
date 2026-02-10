@@ -35,21 +35,21 @@ export async function getPatient(id: number): Promise<Patient> {
   return res.json()
 }
 
-export async function processPrescription(patientId: number, text: string, file: File | null): Promise<ProcessResponse> {
+export async function processClinicalInteraction(patientId: number, text: string, file: File | null): Promise<ProcessResponse> {
     const formData = new FormData()
     formData.append("patient_id", patientId.toString())
     formData.append("input_type", file ? "image" : "text")
     if (text) formData.append("prescription_text", text)
     if (file) formData.append("file", file)
 
-    const res = await fetch(`${API_URL}/prescriptions/process`, {
+    const res = await fetch(`${API_URL}/clinical-interaction/process`, {
         method: "POST",
         body: formData
     })
     
     if (!res.ok) {
         const err = await res.text()
-        throw new Error(err || "Failed to process prescription")
+        throw new Error(err || "Failed to process clinical interaction")
     }
     
     return res.json()
