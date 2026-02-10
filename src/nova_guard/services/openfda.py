@@ -27,15 +27,14 @@ class OpenFDAClient:
         
         Returns the first matching drug label or None if not found.
         """
-        params = {
-            "search": f'openfda.brand_name:"{drug_name}" OR openfda.generic_name:"{drug_name}"',
-            "limit": 1
-        }
-        
-        if self.api_key:
-            params["api_key"] = self.api_key
-        
         try:
+            # 1. Try Exact Match First
+            params = {
+                "search": f'openfda.brand_name:"{drug_name}" OR openfda.generic_name:"{drug_name}"',
+                "limit": 1
+            }
+            if self.api_key: params["api_key"] = self.api_key
+
             response = await self.client.get(self.BASE_URL, params=params)
             response.raise_for_status()
             data = response.json()
@@ -44,8 +43,25 @@ class OpenFDAClient:
                 return data["results"][0]
             return None
             
-        except httpx.HTTPError as e:
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                print(f"⚠️ Exact match failed for '{drug_name}', trying fuzzy search...")
+                # 2. Fallback to Fuzzy Match (no quotes)
+                try:
+                    params["search"] = f'openfda.brand_name:{drug_name} OR openfda.generic_name:{drug_name}'
+                    response = await self.client.get(self.BASE_URL, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                    if data.get("results"):
+                        return data["results"][0]
+                except Exception as e2:
+                    print(f"❌ Fuzzy search also failed: {e2}")
+                    return None
+            
             print(f"❌ OpenFDA API error: {e}")
+            return None
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
             return None
     
     def _extract_field(self, label: dict, field: str) -> Optional[str]:
@@ -153,65 +169,233 @@ class OpenFDAClient:
     # PATIENT-SPECIFIC CHECKS
     # ========================================================================
     
-    async def check_pregnancy_safety(self, label: dict, citation: str) -> List[SafetyFlag]:
-        """Check pregnancy safety warnings."""
+    async def check_drug_recall(self, drug_name: str) -> List[SafetyFlag]:
+        """Check for active FDA drug recalls."""
         flags = []
-        pregnancy = self._extract_field(label, "pregnancy") or \
-                    self._extract_field(label, "pregnancy_or_breast_feeding") or \
-                    self._extract_field(label, "teratogenic_effects")
+        try:
+            # Search for ongoing/pending recalls for this product
+            params = {
+                "search": f'product_description:"{drug_name}" AND status:(Ongoing OR Pending)',
+                "limit": 5
+            }
+            if self.api_key: params["api_key"] = self.api_key
+            
+            url = "https://api.fda.gov/drug/enforcement.json"
+            response = await self.client.get(url, params=params)
+            
+            # 404 means no recalls found, which is good
+            if response.status_code == 404:
+                return []
+                
+            response.raise_for_status()
+            data = response.json()
+            
+            results = data.get("results", [])
+            for recall in results:
+                flags.append(SafetyFlag(
+                    severity="critical",
+                    category="recall",
+                    message=f"🚨 RECALL ({recall.get('status')}): {recall.get('reason_for_recall')[:200]}...",
+                    source="FDA Enforcement",
+                    citation="https://api.fda.gov/drug/enforcement.json"
+                ))
+                
+        except Exception as e:
+            print(f"⚠️ Recall check failed: {e}")
+            
+        return flags
+
+    # ========================================================================
+    # PATIENT-SPECIFIC CHECKS (ENHANCED)
+    # ========================================================================
+    
+    async def check_pregnancy_safety(self, label: dict, citation: str) -> List[SafetyFlag]:
+        """Check pregnancy safety with category parsing."""
+        flags = []
+        pregnancy_text = (self._extract_field(label, "pregnancy") or 
+                          self._extract_field(label, "pregnancy_or_breast_feeding") or "").lower()
         
-        if pregnancy:
+        if not pregnancy_text:
+            return []
+
+        # 1. Check for Category X/D/Warning keywords
+        category = None
+        for cat in ['category x', 'category d', 'category c', 'category b', 'category a']:
+            if cat in pregnancy_text:
+                category = cat.upper()
+                break
+        
+        is_unsafe = any(w in pregnancy_text for w in ['contraindicated', 'must not be used', 'fetal harm', 'teratogenic'])
+        
+        if category == "CATEGORY X" or (is_unsafe and category == "CATEGORY D"):
+            flags.append(SafetyFlag(
+                severity="critical",
+                category="pregnancy",
+                message=f"🤰 PREGNANCY CONTRAINDICATION ({category or 'Unsafe'}): {pregnancy_text[:150]}...",
+                source="OpenFDA",
+                citation=citation
+            ))
+        elif category in ["CATEGORY D", "CATEGORY C"] or "risk" in pregnancy_text:
             flags.append(SafetyFlag(
                 severity="warning",
                 category="pregnancy",
-                message=f"🤰 PREGNANCY: {pregnancy[:200]}...",
+                message=f"🤰 PREGNANCY RISK ({category or 'Caution'}): {pregnancy_text[:150]}...",
+                source="OpenFDA",
+                citation=citation
+            ))
+            
+        return flags
+
+    async def check_renal_dosing(self, label: dict, citation: str, creatinine_clearance: Optional[float]) -> List[SafetyFlag]:
+        """Check if renal dose adjustment is needed."""
+        flags = []
+        if creatinine_clearance is None:
+            return []
+            
+        text = (self._extract_field(label, "dosage_and_administration") or "").lower() + \
+               (self._extract_field(label, "warnings") or "").lower()
+               
+        validation_keywords = ['renal', 'kidney', 'creatinine', 'impairment']
+        if not any(k in text for k in validation_keywords):
+            return []
+            
+        # If patient has low CrCl and label mentions renal adjustment
+        if creatinine_clearance < 60:
+            severity = "warning"
+            if creatinine_clearance < 30: severity = "critical"
+            
+            # Extract a snippet
+            snippet = "Refer to label for renal dosing."
+            sentences = text.split('.')
+            for s in sentences:
+                if any(k in s for k in validation_keywords):
+                    snippet = s.strip()
+                    break
+            
+            flags.append(SafetyFlag(
+                severity=severity,
+                category="renal_dosing",
+                message=f"🚽 RENAL ADJUSTMENT (CrCl {creatinine_clearance} mL/min): {snippet[:200]}...",
                 source="OpenFDA",
                 citation=citation
             ))
         return flags
-    
-    async def check_nursing_safety(self, label: dict, citation: str) -> List[SafetyFlag]:
-        """Check safety for nursing mothers."""
+
+    async def check_pediatric_use(self, label: dict, citation: str, age_years: int) -> List[SafetyFlag]:
+        """Check pediatric safety."""
         flags = []
-        nursing = self._extract_field(label, "nursing_mothers")
-        if nursing:
-            flags.append(SafetyFlag(
+        text = (self._extract_field(label, "pediatric_use") or "").lower()
+        
+        if not text: return []
+        
+        not_established = any(p in text for p in ['not established', 'not recommended', 'safety and effectiveness have not been established'])
+        
+        if not_established:
+             flags.append(SafetyFlag(
                 severity="warning",
-                category="nursing",
-                message=f"🤱 NURSING: {nursing[:200]}...",
+                category="pediatric",
+                message=f"👶 PEDIATRIC WARNING: Safety not established. {text[:150]}...",
                 source="OpenFDA",
                 citation=citation
             ))
-        return flags
-    
-    async def check_pediatric_use(self, label: dict, citation: str) -> List[SafetyFlag]:
-        """Check pediatric use warnings."""
-        flags = []
-        pediatric = self._extract_field(label, "pediatric_use")
-        if pediatric:
-            flags.append(SafetyFlag(
+        elif "weight" in text or "kg" in text:
+             flags.append(SafetyFlag(
                 severity="info",
                 category="pediatric",
-                message=f"👶 PEDIATRIC: {pediatric[:200]}...",
+                message=f"👶 PEDIATRIC DOSING: Verify weight-based dosing. {text[:150]}...",
                 source="OpenFDA",
                 citation=citation
             ))
+            
         return flags
-    
+
     async def check_geriatric_use(self, label: dict, citation: str) -> List[SafetyFlag]:
-        """Check geriatric use considerations."""
+        """Check geriatric considerations (Beers list check happens in Auditor)."""
         flags = []
-        geriatric = self._extract_field(label, "geriatric_use")
-        if geriatric:
-            flags.append(SafetyFlag(
-                severity="info",
+        text = (self._extract_field(label, "geriatric_use") or "").lower()
+        if not text: return []
+        
+        if any(w in text for w in ['hazardous', 'reduce dose', 'lower dose', 'start low']):
+             flags.append(SafetyFlag(
+                severity="warning",
                 category="geriatric",
-                message=f"👴 GERIATRIC: {geriatric[:200]}...",
+                message=f"👴 GERIATRIC PRECAUTION: {text[:200]}...",
                 source="OpenFDA",
                 citation=citation
             ))
         return flags
+        
+    async def check_drug_allergy(self, drug_name: str, label: dict, patient_allergies: List[dict]) -> List[SafetyFlag]:
+        """
+        Check for direct allergies and cross-reactivity.
+        """
+        flags = []
+        drug_lower = drug_name.lower()
+        generic_lower = (self._extract_field(label, "generic_name") or "").lower()
+        
+        # Cross-reactivity mapping
+        cross_map = {
+            'penicillin': ['amoxicillin', 'ampicillin', 'penicillin', 'augmentin'],
+            'sulfa': ['sulfamethoxazole', 'trimethoprim', 'bactrim', 'septra'],
+            'cephalosporin': ['cephalexin', 'keflex', 'cefazolin', 'ceftriaxone', 'rocephin']
+        }
+
+        for allergy in patient_allergies:
+            allergen = allergy.get("allergen", "").lower()
+            
+            # 1. Direct Match
+            if allergen in drug_lower or allergen in generic_lower:
+                flags.append(SafetyFlag(
+                    severity="critical",
+                    category="allergy",
+                    message=f"🚨 ALLERGY ALERT: Patient allergic to {allergen} (Direct match).",
+                    source="Patient History",
+                    citation="Patient Profile"
+                ))
+                continue
+                
+            # 2. Cross-Reactivity
+            for class_name, drugs in cross_map.items():
+                if class_name in allergen:
+                    # If patient is allergic to a class (e.g. "Penicillin")
+                    # Check if current drug is in that class list OR if generic name matches
+                    is_related = any(d in drug_lower or d in generic_lower for d in drugs)
+                    if is_related:
+                         flags.append(SafetyFlag(
+                            severity="warning",
+                            category="cross_reactivity",
+                            message=f"⚠️ CROSS-REACTIVITY: Patient has {class_name} allergy. Verify safety.",
+                            source="Clinical Logic",
+                            citation="Standard of Care"
+                        ))
+        return flags
     
+    # ========================================================================
+    # COMPREHENSIVE CHECK (runs all checks)
+    # ========================================================================
+    
+    def check_duplicate_therapy(self, drug_name: str, current_drugs: List[dict], label: dict) -> List[SafetyFlag]:
+        """Check for duplicate therapy (brand/generic)."""
+        flags = []
+        drug_lower = drug_name.lower()
+        generic_lower = (self._extract_field(label, "generic_name") or "").lower()
+        
+        for drug in current_drugs:
+            existing_name = drug.get("drug_name", "").lower()
+            # Simplistic check: if names match or one contains the other
+            if existing_name in drug_lower or drug_lower in existing_name:
+                 flags.append(SafetyFlag(
+                    severity="warning",
+                    category="duplicate_therapy",
+                    message=f"⚠️ DUPLICATE THERAPY: Patient already on {existing_name}.",
+                    source="Patient History",
+                    citation="Patient Profile"
+                ))
+            # Generic check would require fetching labels for *all* current drugs, skipping for now to keep speed high.
+            # In a real system, we'd cache the generics of the patient's current meds.
+            
+        return flags
+
     # ========================================================================
     # COMPREHENSIVE CHECK (runs all checks)
     # ========================================================================
@@ -219,18 +403,15 @@ class OpenFDAClient:
     async def run_all_checks(self, drug_name: str, patient_profile: dict) -> List[SafetyFlag]:
         """
         Run all comprehensive safety checks.
-        
-        Main entry point that:
-        1. Normalizes drug name (RxNorm)
-        2. Fetches OpenFDA label (once)
-        3. Generates citation
-        4. Runs all check methods with cached label
         """
         from nova_guard.services.rxnorm import rxnorm_client
         
         all_flags = []
         
-        print(f"💊 Running OpenFDA checks for: {drug_name}")
+        print(f"💊 Running Advanced Safety Checks for: {drug_name}")
+        
+        # Step 0: Check Recalls (Independent of Label)
+        all_flags.extend(await self.check_drug_recall(drug_name))
         
         # Step 1: Normalize Drug Name (RxNorm)
         check_name = drug_name
@@ -241,10 +422,8 @@ class OpenFDAClient:
             if normalization["success"]:
                 rxnorm_name = normalization.get("preferred_name") or normalization.get("generic_name")
                 if rxnorm_name:
-                    print(f"✅ Normalized '{drug_name}' -> '{rxnorm_name}' (RxCUI: {normalization['rxcui']})")
                     check_name = rxnorm_name
                 
-                # RxNorm citation
                 if normalization.get("rxcui"):
                      rxnorm_citation = f"https://rxnav.nlm.nih.gov/REST/rxcui/{normalization['rxcui']}"
                 
@@ -267,28 +446,44 @@ class OpenFDAClient:
         # Step 3: Get Citation
         citation = self._get_citation(label)
         
-        # Step 4: Run Checks with Cached Label
+        # Step 4: Run Core FDA Checks
         all_flags.extend(await self.check_boxed_warning(label, citation))
         all_flags.extend(await self.check_contraindications(label, citation))
         all_flags.extend(await self.check_drug_interactions(label, citation))
         all_flags.extend(await self.check_adverse_reactions(label, citation))
         all_flags.extend(await self.check_warnings_and_cautions(label, citation))
         
-        # Patient-specific checks
+        # Step 5: Advanced Patient-Specific Checks
+        
+        # Allergies (Enhanced)
+        if patient_profile.get("allergies"):
+            all_flags.extend(await self.check_drug_allergy(check_name, label, patient_profile["allergies"]))
+            
+        # Duplicates
+        if patient_profile.get("current_drugs"):
+            all_flags.extend(self.check_duplicate_therapy(check_name, patient_profile["current_drugs"], label))
+        
+        # Pregnancy / Nursing
         if patient_profile.get("is_pregnant"):
             all_flags.extend(await self.check_pregnancy_safety(label, citation))
         
         if patient_profile.get("is_nursing"):
             all_flags.extend(await self.check_nursing_safety(label, citation))
         
-        if patient_profile.get("age_years"):
-            age = patient_profile["age_years"]
+        # Age-based and Renal
+        age = patient_profile.get("age_years")
+        if age:
             if age < 18:
-                all_flags.extend(await self.check_pediatric_use(label, citation))
+                all_flags.extend(await self.check_pediatric_use(label, citation, age))
             elif age >= 65:
                 all_flags.extend(await self.check_geriatric_use(label, citation))
+                
+        # Renal (using eGFR as proxy for CrCl)
+        egfr = patient_profile.get("egfr")
+        if egfr:
+            all_flags.extend(await self.check_renal_dosing(label, citation, float(egfr)))
         
-        print(f"✅ OpenFDA checks complete: {len(all_flags)} flag(s) found")
+        print(f"✅ Advanced checks complete: {len(all_flags)} flag(s) found")
         
         return all_flags
 

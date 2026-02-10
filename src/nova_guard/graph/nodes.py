@@ -390,8 +390,16 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     if state.get("extracted_data"):
         drug_name = state["extracted_data"].drug_name
     elif state.get("prescription_text"):
-        # Basic cleanup of the chat text to find the drug name
-        drug_name = state["prescription_text"].strip()
+        # Use LLM to extract drug name from natural language query
+        from nova_guard.services.bedrock import bedrock_client
+        
+        extraction_prompt = "Extract ONLY the generic drug name from this text. Return just the name, nothing else."
+        drug_name = await bedrock_client.extract_entity(
+            text=state["prescription_text"],
+            prompt=extraction_prompt
+        )
+        # Clean up any potential extra chars
+        drug_name = drug_name.strip().split("\n")[0].replace(".", "").strip()
 
     if not drug_name:
         return {"messages": ["❌ System could not identify a drug name for lookup."]}
@@ -417,7 +425,7 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     
     return {
         "drug_info": refined_knowledge,
-        "messages": [f"✅ Retrieved medical knowledge for {drug_name}."]
+        "messages": [f" Retrieved medical knowledge for {drug_name}."]
     }
 
 
@@ -443,17 +451,7 @@ def auditor_node(state: PatientState) -> dict:
     
     drug_name = extracted.drug_name.lower()
     
-    # Check allergies
-    for allergy in profile.get("allergies", []):
-        if drug_name in allergy["allergen"].lower():
-            flags.append(SafetyFlag(
-                severity="critical",
-                category="allergy",
-                message=f"Patient is allergic to {allergy['allergen']} ({allergy['severity']})",
-                source="Patient History"
-            ))
-    
-    # Check adverse reactions
+    # Check adverse reactions (Historical)
     for reaction in profile.get("adverse_reactions", []):
         if drug_name in reaction["drug_name"].lower():
             flags.append(SafetyFlag(
@@ -462,20 +460,12 @@ def auditor_node(state: PatientState) -> dict:
                 message=f"Patient had {reaction['severity']} reaction to {reaction['drug_name']}: {reaction['symptoms']}",
                 source="Patient History"
             ))
-    
-    # Check for duplicates
-    for current_drug in profile.get("current_drugs", []):
-        if drug_name in current_drug["drug_name"].lower():
-            flags.append(SafetyFlag(
-                severity="warning",
-                category="duplicate_medication",
-                message=f"Patient is already taking {current_drug['drug_name']} {current_drug['dose']}",
-                source="Patient History"
-            ))
+            
+    # Note: Allergies, Duplicates, and Label Checks are now handled by OpenFDAClient in the next node ('openfda').
     
     return {
         "safety_flags": flags,
-        "messages": [f"🔬 Auditor found {len(flags)} flag(s)"]
+        "messages": [f"🔬 Auditor checks complete (History). Proceeding to FDA checks..."]
     }
 
 async def assistant_node(state: PatientState) -> dict:

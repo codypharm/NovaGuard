@@ -119,6 +119,30 @@ class BedrockClient:
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)
     # ========================================================================
+    async def extract_entity(self, text: str, prompt: str) -> str:
+        """
+        Uses Nova Micro to extract specific entities (drug names, dates, etc.) from text.
+        """
+        if not self.openai_client:
+            return text # Fallback to returning original text if offline
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_MICRO,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": f"Input: {text}"}
+                ],
+                temperature=0.0
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"❌ Entity Extraction Error: {e}")
+            return text
+
+    # ========================================================================
+    # EXISTING: Image Processing (Boto3 / Nova Lite)
+    # ========================================================================
     async def process_image(self, image_bytes: bytes) -> Optional[PrescriptionData]:
         """
         Uses Nova Lite (via Bedrock Boto3) for vision tasks.
