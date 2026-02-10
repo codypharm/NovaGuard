@@ -26,6 +26,7 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
   const [dragActive, setDragActive] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Effect to add verdict as a message when it arrives
   useEffect(() => {
@@ -83,6 +84,8 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
         setAttachedFile(file)
         const url = URL.createObjectURL(file)
         setPreviewUrl(url)
+        // Focus back to textarea
+        setTimeout(() => textareaRef.current?.focus(), 0)
     }
   }
 
@@ -90,9 +93,9 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
     e.preventDefault()
     e.stopPropagation()
     if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true)
+        setDragActive(true)
     } else if (e.type === "dragleave") {
-      setDragActive(false)
+        setDragActive(false)
     }
   }
 
@@ -185,13 +188,13 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
             <div key={msg.id} className={cn("flex gap-3", msg.role === 'user' ? "flex-row-reverse" : "flex-row")}>
                 <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
-                    msg.role === 'user' ? "bg-slate-900 text-white" : "bg-teal-100 text-teal-600"
+                    msg.role === 'user' ? "bg-slate-100 text-slate-600" : "bg-teal-100 text-teal-600"
                 )}>
                     {msg.role === 'user' ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
                 </div>
                 <div className={cn(
                     "max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm",
-                    msg.role === 'user' ? "bg-slate-900 text-white rounded-tr-none" : "bg-slate-50 text-slate-800 border border-slate-100 rounded-tl-none"
+                    msg.role === 'user' ? "bg-teal-50 text-teal-900 border border-teal-100 rounded-tr-none" : "bg-white text-slate-800 border border-slate-100 rounded-tl-none"
                 )}>
                     {msg.content}
                 </div>
@@ -231,6 +234,7 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
 
             <div className="relative flex-1">
                 <Textarea
+                    ref={textareaRef}
                     value={input}
                     onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
                     placeholder="Describe prescription or drop image..."
