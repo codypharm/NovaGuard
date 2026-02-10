@@ -24,6 +24,7 @@ class PatientState(TypedDict):
     # ========================================================================
     # Input (one of these will be populated based on input_type)
     # ========================================================================
+    intent: Optional[Literal["AUDIT", "CLINICAL_QUERY", "MEDICAL_KNOWLEDGE", "SYSTEM_ACTION"]]
     input_type: Literal["image", "text", "voice"]
     prescription_image: Optional[bytes]  # For image input
     prescription_text: Optional[str]     # For typed text input
@@ -40,6 +41,10 @@ class PatientState(TypedDict):
     # ========================================================================
     patient_id: int
     patient_profile: Optional[dict]  # Full patient record with history
+
+    # --- Medical Knowledge Cache ---
+    # Store OpenFDA or DailyMed data here so the Assistant can access it
+    drug_info: Optional[dict]
     
     # ========================================================================
     # Safety Analysis Results
@@ -51,8 +56,15 @@ class PatientState(TypedDict):
     # Workflow Control
     # ========================================================================
     human_confirmed: bool  # Has human reviewed the extraction?
+
+    # --- Tool & Navigation Logic ---
+    # This is critical for the Tools Node to communicate with the Frontend
+    system_action: Optional[dict]        # e.g., {"action": "open_source", "drug": "Aspirin"}
+    external_url: Optional[str]          # The URL for the React app to open
     
     # ========================================================================
     # Messages (for LangGraph's built-in message handling)
     # ========================================================================
     messages: Annotated[list, add_messages]  # Conversation/log messages
+
+    chat_history: list[dict] # e.g., [{"role": "user", "content": "..."}]

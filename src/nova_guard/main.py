@@ -1,9 +1,9 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -176,65 +176,60 @@ async def add_adverse_reaction(
 # Prescription Processing Endpoint (LangGraph Workflow)
 # ============================================================================
 
-@app.post("/prescriptions/process")
-async def process_prescription(
-    input_type: str,
-    patient_id: int,
-    prescription_text: str | None = None,
-    file: UploadFile = File(None),
+@app.post("/clinical-interaction/process")
+async def process_clinical_interaction(
+    patient_id: int = Form(...),
+    prescription_text: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
 ):
     """
-    Process a prescription through the safety auditing workflow.
-    
-    Supports Text and Image input.
+    Unified endpoint for all clinical interactions. 
+    Handles images, text prescriptions, and assistant follow-ups.
     """
     from nova_guard.graph.workflow import prescription_workflow
     
-    # Read image bytes if provided
-    image_bytes = None
-    if file:
-        image_bytes = await file.read()
-        print(f"📥 Received file upload: {file.filename} ({len(image_bytes)} bytes)")
+    # 1. Prepare Input Data
+    image_bytes = await file.read() if file else None
     
-    # Initialize state
+    # 2. Initialize State 
     initial_state = {
-        "input_type": input_type,
         "patient_id": patient_id,
         "prescription_text": prescription_text,
         "prescription_image": image_bytes,
-        "prescription_audio": None,
-        "extracted_data": None,
-        "confidence_score": 0.0,
-        "patient_profile": None,
-        "safety_flags": [],
-        "verdict": None,
-        "human_confirmed": False,
+        "chat_history": [], 
         "messages": []
     }
     
-    # Run workflow (will pause at HITL interrupt)
-    config = {"configurable": {"thread_id": f"pid-{patient_id}"}}
+    # 3. Execution Config (Threaded by Patient ID for persistence)
+    config = {"configurable": {"thread_id": f"session-{patient_id}"}}
     
-    # Phase 1/2: Run graph
     try:
-        # Initial run
+        # Initial invocation triggers the Gateway Supervisor
         result = await prescription_workflow.ainvoke(initial_state, config)
         
-        # Auto-confirm for demo (should be separate step in production)
-        if result.get("extracted_data"):
-             result = await prescription_workflow.ainvoke(None, config)
+        # 4. Handle Human-in-the-Loop (HITL) for Extraction
+        # If the graph is waiting for confirmation, we return the current state
+        state_snapshot = await prescription_workflow.aget_state(config)
+        
+        if state_snapshot.next:
+            # The graph is paused (likely at fetch_patient for verification)
+            return {
+                "status": "awaiting_verification",
+                "extracted_data": result.get("extracted_data"),
+                "intent": result.get("intent")
+            }
              
         return {
             "status": "completed",
+            "intent": result.get("intent"),
             "verdict": result.get("verdict"),
-            "messages": result.get("messages", []),
-            "extracted_data": result.get("extracted_data"),
+            "assistant_response": result.get("messages")[-1] if result.get("messages") else None,
             "safety_flags": result.get("safety_flags", [])
         }
+
     except Exception as e:
         print(f"❌ Workflow Error: {e}")
-        return {"status": "error", "message": str(e)}
-
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # Natural Language Query Endpoint
