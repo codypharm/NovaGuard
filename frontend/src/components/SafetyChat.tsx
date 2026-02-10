@@ -194,8 +194,10 @@ export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse
                <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
                   <Bot className="h-4 w-4 text-teal-600 animate-pulse" />
                </div>
-               <div className="bg-slate-100 rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-600">
-                  Running clinical analysis...
+               <div className="bg-slate-100 rounded-2xl rounded-tl-none px-4 py-4 text-sm text-slate-600 flex items-center gap-1.5 min-h-[44px]">
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
                </div>
            </div>
         )}

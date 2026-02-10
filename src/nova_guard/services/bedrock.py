@@ -13,9 +13,10 @@ class BedrockClient:
     """Client for interacting with Amazon Nova models (via OpenAI-compatible API)."""
     
     # Model IDs (Nova OpenAI-compatible)
-    MODEL_MICRO = "nova-2-lite-v1" # Using Lite for now as Micro seems unavailable
-    MODEL_LITE = "nova-2-lite-v1"
-    MODEL_PRO = "nova-2-pro-v1"
+    # Using v1 models as v2 seems restricted/unavailable for this account
+    MODEL_MICRO = "nova-micro-v1" 
+    MODEL_LITE = "nova-lite-v1"
+    MODEL_PRO = "nova-pro-v1"
     
     def __init__(self):
         # OpenAI Client for Text/Chat

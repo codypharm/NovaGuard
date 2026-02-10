@@ -38,8 +38,9 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
     - CLINICAL_QUERY: User is asking a question about the patient's history, allergies, or meds.
     - MEDICAL_KNOWLEDGE: User is asking a general medical question (e.g., 'What is the dosage for X?').
     - SYSTEM_ACTION: User wants to perform a tool action like 'open source' or 'generate report'.
+    - GENERAL_CHAT: User is greeting, saying thanks, or engaging in small talk (e.g., 'Hello', 'Thanks').
 
-    Return ONLY the category name.
+    Return ONLY the category name, do not return reasoning.
     """
     
     # We pass the text and a flag if an image exists to help Nova decide
@@ -55,6 +56,7 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
     elif "QUERY" in intent: intent = "CLINICAL_QUERY"
     elif "KNOWLEDGE" in intent: intent = "MEDICAL_KNOWLEDGE"
     elif "ACTION" in intent: intent = "SYSTEM_ACTION"
+    elif "CHAT" in intent or "GENERAL" in intent: intent = "GENERAL_CHAT"
 
     return {
         "intent": intent,
@@ -219,10 +221,12 @@ def text_intake_node(state: PatientState) -> dict:
             "messages": [f"✅ Parsed prescription: {extracted.drug_name} {extracted.dose}"]
         }
     else:
+        # Fallback: Treat as generalized text/query for the assistant
+        # This handles "Hello", "How are you?", or complex questions without specific drug names
         return {
             "extracted_data": None,
-            "confidence_score": 0.0,
-            "messages": ["❌ Could not parse text. Expected format: 'DrugName Dose Frequency' or a natural language query"]
+            "confidence_score": 0.5,
+            "messages": ["ℹ️ Processing as general clinical query"]
         }
 
 
@@ -272,6 +276,7 @@ def route_input(state: PatientState) -> str:
         # If we have text, we might need to parse parameters from it first
         if state.get("prescription_text"):
             return "text_intake"
+        print("No text provided, fetching tools")
         return "tools_node"
     
     # Path for Chat / Questions
@@ -279,10 +284,15 @@ def route_input(state: PatientState) -> str:
         # If we have text, parse it for drug names first (even if just a query)
         if state.get("prescription_text"):
             return "text_intake"
+        print("No text provided, fetching patient")
         return "fetch_patient" # Always fetch patient context for history questions
 
     if intent == "MEDICAL_KNOWLEDGE":
-        return "fetch_medical_knowledge"  
+        return "fetch_medical_knowledge"
+        
+    if intent == "GENERAL_CHAT":
+        print("General chat detected, fetching assistant")
+        return "assistant_node"
          
     return "assistant_node"
 
@@ -485,12 +495,14 @@ async def assistant_node(state: PatientState) -> dict:
     intent_instructions = {
         "MEDICAL_KNOWLEDGE": "Focus on summarizing the provided FDA drug labeling. Explain indications, dosage, and side effects clearly.",
         "CLINICAL_QUERY": "Focus on the intersection of the patient's history and the current meds. Be extremely cautious about allergy and interaction risks.",
-        "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status."
+        "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status.",
+        "GENERAL_CHAT": "Be friendly, professional, and helpful. Maintain a Pharmacist assistant persona but feel free to engage in small talk with the pharmacist."
     }
 
     # 2. Refined System Prompt
     system_prompt = f"""
-    You are the Nova Guard Clinical Assistant. 
+    You are the Nova Guard Pharmacist Assistant, you primary role is to assist pharmacists with clinical decision support. 
+    Your name is Nova Guard.
     ROLE: {intent_instructions.get(intent, "General Assistant")}
     
     PATIENT PROFILE: {profile if profile else 'Not selected'}
@@ -514,7 +526,7 @@ async def assistant_node(state: PatientState) -> dict:
     )
     
     return {
-        "messages": [f"Assistant: {response}"], # LangGraph's add_messages handles the append
+        "messages": [response], # LangGraph's add_messages handles the append
         "prescription_text": None 
     }
 

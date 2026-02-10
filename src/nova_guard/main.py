@@ -219,11 +219,19 @@ async def process_clinical_interaction(
                 "intent": result.get("intent")
             }
              
+        # Helper to extract string from message
+        def get_msg_content(msg):
+            if hasattr(msg, "content"): return msg.content
+            if isinstance(msg, dict): return msg.get("content", str(msg))
+            return str(msg)
+
+        last_msg = result.get("messages")[-1] if result.get("messages") else None
+        
         return {
             "status": "completed",
             "intent": result.get("intent"),
             "verdict": result.get("verdict"),
-            "assistant_response": result.get("messages")[-1] if result.get("messages") else None,
+            "assistant_response": get_msg_content(last_msg) if last_msg else None,
             "safety_flags": result.get("safety_flags", [])
         }
 
