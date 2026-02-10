@@ -83,7 +83,34 @@ def create_prescription_workflow():
     
     # 3. Intake to Processing (Human-in-the-Loop follows image/text extraction)
     workflow.add_edge("image_intake", "fetch_patient")
-    workflow.add_edge("text_intake", "fetch_patient")
+    workflow.add_edge("image_intake", "fetch_patient")
+    # workflow.add_edge("text_intake", "fetch_patient") # Removed fixed edge
+    workflow.add_edge("voice_intake", "fetch_patient")
+    
+    # 3.5 Text Intake Routing (can go to fetch_patient OR tools_node based on parsed intent)
+    def route_text_intake(state: PatientState):
+        if state.get("system_action") or state.get("external_url"):
+             # If text intake produced an action (like open source), go to tools
+             # Actually, if it produced external_url, it might be done or need tools to log it?
+             # text_intake logic for 'open source' returns 'external_url'. 
+             # If we want to finalize, we might need to go to END or tools.
+             # If we go to tools, tools_node needs to handle it.
+             # But text_intake ALREADY generated the URL in my previous edit.
+             # So maybe we just go to END? Or fetch_patient?
+             if state.get("external_url"):
+                 return END
+             return "tools_node"
+        return "fetch_patient"
+
+    workflow.add_conditional_edges(
+        "text_intake",
+        route_text_intake,
+        {
+            "fetch_patient": "fetch_patient",
+            "tools_node": "tools_node",
+            END: END
+        }
+    )
     workflow.add_edge("voice_intake", "fetch_patient")
     
     # 4. Processing Pipeline Routing

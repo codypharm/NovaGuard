@@ -10,6 +10,7 @@ export function SafetyHUD() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
+  const [assistantResponse, setAssistantResponse] = useState<string | null>(null)
   
   // No automatic load
   /* 
@@ -35,7 +36,24 @@ export function SafetyHUD() {
     
     try {
         const result = await processClinicalInteraction(currentPatient.id, text, file)
-        setVerdict(result.verdict as Verdict) 
+        
+        // Handle Assistant Response & Verdict
+        if (result.verdict) {
+            setVerdict(result.verdict as Verdict)
+        }
+
+        // Pass assistant response to chat (we need to update SafetyChat props first)
+        // For now, we'll store it in a ref or simply pass it if we add a state. 
+        // Let's add the state to SafetyHUD to pass down.
+        if (result.assistant_response) {
+            setAssistantResponse(result.assistant_response)
+        }
+        
+        // Handle External Actions (e.g., Open Source)
+        if (result.external_url) {
+            window.open(result.external_url, '_blank')
+        }
+
     } catch (err) {
         console.error("Analysis Failed", err)
     } finally {
@@ -58,7 +76,13 @@ export function SafetyHUD() {
       <div className="h-[calc(100vh-9rem)] grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* MAIN CHAT AREA (3 Cols) */}
         <div className="lg:col-span-3 h-full overflow-hidden">
-            <SafetyChat verdict={verdict} isProcessing={isProcessing} onProcess={handleProcess} />
+            <SafetyChat 
+                verdict={verdict} 
+                isProcessing={isProcessing} 
+                onProcess={handleProcess} 
+                assistantResponse={assistantResponse}
+                onResponseShown={() => setAssistantResponse(null)}
+            />
         </div>
 
         {/* SIDEBAR PROFILE (1 Col) */}

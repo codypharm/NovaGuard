@@ -16,9 +16,11 @@ interface SafetyChatProps {
   verdict: Verdict | null
   isProcessing: boolean
   onProcess: (text: string, file: File | null) => void
+  assistantResponse: string | null
+  onResponseShown: () => void
 }
 
-export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps) {
+export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
@@ -27,6 +29,20 @@ export function SafetyChat({ verdict, isProcessing, onProcess }: SafetyChatProps
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Effect to add assistant response when it arrives
+  useEffect(() => {
+    if (assistantResponse) {
+      const assistantMsg: Message = {
+        id: `assistant-${Date.now()}`,
+        role: 'assistant',
+        timestamp: new Date(),
+        content: <p>{assistantResponse}</p>
+      }
+      setMessages(prev => [...prev, assistantMsg])
+      onResponseShown() // Clear the prop so we don't re-add it
+    }
+  }, [assistantResponse, onResponseShown])
 
   // Effect to add verdict as a message when it arrives
   useEffect(() => {

@@ -22,10 +22,14 @@ export interface Condition {
 
 export interface ProcessResponse {
     status: string
-    verdict: {
+    intent?: string
+    assistant_response?: string
+    external_url?: string
+    verdict?: {
         status: "green" | "yellow" | "red"
         flags: any[]
     }
+    safety_flags?: any[]
     extracted_data: any
 }
 

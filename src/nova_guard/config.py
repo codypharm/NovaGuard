@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     
     # AWS
     aws_region: str = "us-east-1"
+    aws_access_key_id: str | None = None
+    aws_secret_access_key: str | None = None
+    
+    # Nova API (OpenAI Compatible)
+    nova_api_key: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",

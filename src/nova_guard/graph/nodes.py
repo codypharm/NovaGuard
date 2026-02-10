@@ -48,7 +48,7 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
         has_image=has_image, 
         prompt=classification_prompt
     )
-    
+    print(f"Intent: {intent}")
     # Clean the output (Nova might return 'Intent: AUDIT', we just want 'AUDIT')
     intent = intent.strip().upper()
     if "AUDIT" in intent: intent = "AUDIT"
@@ -148,22 +148,17 @@ def text_intake_node(state: PatientState) -> dict:
                      pass
             
              if potential_drug:
-                 import webbrowser
                  # Check if we can normalize it to get a good URL
-                 # Note: In a real async node we might fail here if we block, 
-                 # but webbrowser.open is fast enough for a demo or we should push to a separate tool.
-                 # For Phase 1, we'll just construct a search URL or use the logic if we had async access.
-                 # Since this is a sync node (currently), running async rxnorm is hard.
                  # We will just open the OpenFDA search or DailyMed search for now.
                  
                  url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={potential_drug}"
-                 print(f"🖥️ Opening source for {potential_drug}: {url}")
-                 webbrowser.open(url)
+                 print(f"🖥️ Generating source link for {potential_drug}: {url}")
                  
                  return {
                      "input_type": "text",
                      "prescription_text": text,
-                     "messages": [f"🚀 Opened DailyMed source for '{potential_drug}'"]
+                     "external_url": url,
+                     "messages": [f"🚀 Generated DailyMed link for '{potential_drug}'"]
                  }
 
         # Use NLP service for structured allergy/safety queries
@@ -274,10 +269,16 @@ def route_input(state: PatientState) -> str:
     
     # Path for Actions (The new Tools Node)
     if intent == "SYSTEM_ACTION":
+        # If we have text, we might need to parse parameters from it first
+        if state.get("prescription_text"):
+            return "text_intake"
         return "tools_node"
     
     # Path for Chat / Questions
     if intent == "CLINICAL_QUERY":
+        # If we have text, parse it for drug names first (even if just a query)
+        if state.get("prescription_text"):
+            return "text_intake"
         return "fetch_patient" # Always fetch patient context for history questions
 
     if intent == "MEDICAL_KNOWLEDGE":
