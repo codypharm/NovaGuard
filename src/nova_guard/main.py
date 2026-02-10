@@ -83,6 +83,18 @@ async def get_patient(
     return patient
 
 
+@app.get("/patients/lookup/{mrn}", response_model=PatientResponse)
+async def lookup_patient_by_mrn(
+    mrn: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lookup patient by Medical Record Number."""
+    patient = await patient_crud.get_patient_by_mrn(db, mrn)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patient
+
+
 @app.get("/patients", response_model=list[PatientResponse])
 async def list_patients(
     skip: int = 0,

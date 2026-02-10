@@ -38,6 +38,8 @@ class Patient(Base):
     medical_record_number: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
     
     # Optional patient metadata
+    weight: Mapped[Optional[str]] = mapped_column(String(50)) # e.g. "70kg"
+    height: Mapped[Optional[str]] = mapped_column(String(50)) # e.g. "175cm"
     age_years: Mapped[Optional[int]]  # Calculated or stored
     is_pregnant: Mapped[bool] = mapped_column(Boolean, default=False)
     is_nursing: Mapped[bool] = mapped_column(Boolean, default=False)

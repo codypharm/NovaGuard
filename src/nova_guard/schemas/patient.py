@@ -18,6 +18,8 @@ class PatientBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     date_of_birth: date
     medical_record_number: Optional[str] = Field(None, max_length=100)
+    weight: Optional[str] = Field(None, max_length=50)
+    height: Optional[str] = Field(None, max_length=50)
     age_years: Optional[int] = Field(None, ge=0, le=150)
     is_pregnant: bool = False
     is_nursing: bool = False

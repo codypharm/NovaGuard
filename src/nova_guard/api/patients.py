@@ -38,6 +38,20 @@ async def get_patient(db: AsyncSession, patient_id: int) -> Optional[Patient]:
     return result.scalar_one_or_none()
 
 
+async def get_patient_by_mrn(db: AsyncSession, mrn: str) -> Optional[Patient]:
+    """Get patient by MRN with all related data."""
+    result = await db.execute(
+        select(Patient)
+        .where(Patient.medical_record_number == mrn)
+        .options(
+            selectinload(Patient.drug_history),
+            selectinload(Patient.allergies),
+            selectinload(Patient.adverse_reactions),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def get_patients(
     db: AsyncSession, skip: int = 0, limit: int = 100
 ) -> list[Patient]:
