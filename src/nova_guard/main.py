@@ -3,7 +3,7 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -169,24 +169,27 @@ async def process_prescription(
     input_type: str,
     patient_id: int,
     prescription_text: str | None = None,
+    file: UploadFile = File(None),
 ):
     """
     Process a prescription through the safety auditing workflow.
     
-    Phase 1: Text input only (image and voice are mocked)
-    
-    Example:
-    POST /prescriptions/process?input_type=text&patient_id=1
-    Body: "Lisinopril 10mg once daily"
+    Supports Text and Image input.
     """
     from nova_guard.graph.workflow import prescription_workflow
+    
+    # Read image bytes if provided
+    image_bytes = None
+    if file:
+        image_bytes = await file.read()
+        print(f"📥 Received file upload: {file.filename} ({len(image_bytes)} bytes)")
     
     # Initialize state
     initial_state = {
         "input_type": input_type,
         "patient_id": patient_id,
         "prescription_text": prescription_text,
-        "prescription_image": None,
+        "prescription_image": image_bytes,
         "prescription_audio": None,
         "extracted_data": None,
         "confidence_score": 0.0,
@@ -198,24 +201,27 @@ async def process_prescription(
     }
     
     # Run workflow (will pause at HITL interrupt)
-    config = {"configurable": {"thread_id": "test-thread"}}
+    config = {"configurable": {"thread_id": f"pid-{patient_id}"}}
     
-    # Step 1: Run until interrupt
-    result = await prescription_workflow.ainvoke(initial_state, config)
-    
-    # In a real app, you'd return the extracted data here for human review
-    # Then the human would call a separate endpoint to continue
-    
-    # For Phase 1 demo, we'll auto-continue (skip HITL)
-    result["human_confirmed"] = True
-    final_result = await prescription_workflow.ainvoke(None, config)
-    
-    return {
-        "status": "completed",
-        "verdict": final_result.get("verdict"),
-        "messages": final_result.get("messages", []),
-        "extracted_data": final_result.get("extracted_data"),
-    }
+    # Phase 1/2: Run graph
+    try:
+        # Initial run
+        result = await prescription_workflow.ainvoke(initial_state, config)
+        
+        # Auto-confirm for demo (should be separate step in production)
+        if result.get("extracted_data"):
+             result = await prescription_workflow.ainvoke(None, config)
+             
+        return {
+            "status": "completed",
+            "verdict": result.get("verdict"),
+            "messages": result.get("messages", []),
+            "extracted_data": result.get("extracted_data"),
+            "safety_flags": result.get("safety_flags", [])
+        }
+    except Exception as e:
+        print(f"❌ Workflow Error: {e}")
+        return {"status": "error", "message": str(e)}
 
 
 # ============================================================================
