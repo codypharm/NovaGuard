@@ -33,6 +33,25 @@ async def update_patient(
         return None
 
     update_data = patient_data.model_dump(exclude_unset=True)
+    
+    # Handle allergies separately if provided
+    if "allergies" in update_data:
+        allergies_data = update_data.pop("allergies")
+        if allergies_data is not None:
+             # Clear existing allergies for this patient
+             await db.execute(
+                 select(AllergyRegistry).where(AllergyRegistry.patient_id == patient_id)
+             )
+             # Better approach: delete all and re-add to ensure sync (handles deletions)
+             from sqlalchemy import delete
+             await db.execute(delete(AllergyRegistry).where(AllergyRegistry.patient_id == patient_id))
+             
+             for allergy in allergies_data:
+                 # Ensure patient_id is correct
+                 allergy['patient_id'] = patient_id
+                 db_allergy = AllergyRegistry(**allergy)
+                 db.add(db_allergy)
+
     for key, value in update_data.items():
         setattr(db_patient, key, value)
 
@@ -90,6 +109,17 @@ async def add_drug_to_history(
 
 async def add_allergy(db: AsyncSession, allergy: AllergyCreate) -> AllergyRegistry:
     """Add allergy to patient's registry."""
+    # Check for existing allergy (case-insensitive)
+    result = await db.execute(
+        select(AllergyRegistry)
+        .where(AllergyRegistry.patient_id == allergy.patient_id)
+        .where(AllergyRegistry.allergen.ilike(allergy.allergen))
+    )
+    existing = result.scalar_one_or_none()
+    
+    if existing:
+        return existing
+
     db_allergy = AllergyRegistry(**allergy.model_dump())
     db.add(db_allergy)
     await db.flush()

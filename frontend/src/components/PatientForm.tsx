@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { createPatient, updatePatient, addAllergy, getPatientByMRN, type Patient } from "@/services/api"
+import { createPatient, updatePatient, getPatientByMRN, type Patient } from "@/services/api"
 
 interface PatientFormProps {
   initialPatient: Patient | null
@@ -69,7 +69,14 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
             height: formData.height,
             egfr: formData.egfr ? Number(formData.egfr) : undefined,
             is_pregnant: formData.is_pregnant || false,
-            is_nursing: formData.is_nursing || false
+            is_nursing: formData.is_nursing || false,
+            // Send allergies for sync (additions & deletions)
+            allergies: formData.allergies?.map(a => ({
+                patient_id: formData.id || 0, // Backend handles override/assignment
+                allergen: a.allergen,
+                allergy_type: "drug",
+                severity: "severe" // Default for now, should refine UI to capture this
+            }))
         }
 
         let savedPatient: Patient
@@ -79,16 +86,6 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         } else {
             // Create New (POST)
             savedPatient = await createPatient(payload)
-        }
-
-        // Add Allergies if any (simple add-only logic for now)
-        if (formData.allergies && formData.allergies.length > 0) {
-            // Filter out empty strings if any
-            const newAllergies = formData.allergies.filter(a => a.allergen.trim() !== "")
-            if (newAllergies.length > 0) {
-                 await Promise.all(newAllergies.map(a => addAllergy(savedPatient.id, a.allergen)))
-                 savedPatient.allergies = newAllergies
-            }
         }
 
         setIsEditing(false)

@@ -26,20 +26,40 @@ async def create_session(db: AsyncSession, session_id: str, title: str = "New Se
     return session
 
 
-async def update_session_patient(db: AsyncSession, session_id: str, patient_id: int) -> Optional[Session]:
-    """Link a session to a patient and update title."""
+async def update_session_patient(
+    db: AsyncSession, 
+    session_id: str, 
+    patient_id: Optional[int], 
+    preview_text: Optional[str] = None
+) -> Optional[Session]:
+    """Link a session to a patient and/or update title based on content."""
     session = await get_session(db, session_id)
     if not session:
         # If session doesn't exist (e.g. started chat without patient), create it now
         session = await create_session(db, session_id)
     
-    # Check if patient exists to get name for title
-    patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
-    patient = patient_result.scalar_one_or_none()
-    
-    if patient:
-        session.patient_id = patient_id
-        session.title = f"Patient #{patient.medical_record_number or patient.id} - {patient.name}"
+    # 1. If patient provided, link and set formal title
+    if patient_id:
+        patient_result = await db.execute(select(Patient).where(Patient.id == patient_id))
+        patient = patient_result.scalar_one_or_none()
+        
+        if patient:
+            session.patient_id = patient_id
+            session.title = f"Patient #{patient.medical_record_number or patient.id} - {patient.name}"
+            session.updated_at = datetime.utcnow()
+            await db.flush()
+            await db.refresh(session)
+            return session
+
+    # 2. If no patient linked yet, try to set a descriptive title from content
+    # Only update if title is still the default "New Session" to avoid overwriting custom renames (future proof)
+    if preview_text and session.title == "New Session":
+        # Truncate to reasonable length
+        clean_preview = preview_text.strip().split('\n')[0][:40]
+        if len(preview_text) > 40:
+            clean_preview += "..."
+            
+        session.title = clean_preview
         session.updated_at = datetime.utcnow()
         await db.flush()
         await db.refresh(session)
@@ -53,6 +73,10 @@ async def list_recent_sessions(db: AsyncSession, limit: int = 20) -> List[Sessio
         select(Session)
         .order_by(desc(Session.updated_at))
         .limit(limit)
-        .options(selectinload(Session.patient))
+        .options(
+            selectinload(Session.patient).selectinload(Patient.allergies),
+            selectinload(Session.patient).selectinload(Patient.drug_history),
+            selectinload(Session.patient).selectinload(Patient.adverse_reactions)
+        )
     )
     return list(result.scalars().all())

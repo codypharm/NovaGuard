@@ -27,6 +27,7 @@ interface SafetyChatProps {
 
 export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [input, setInput] = useState("")
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -34,12 +35,14 @@ export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assist
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  
+
   // Load History on Session Change
   useEffect(() => {
       if (!sessionId) return
       
       const loadHistory = async () => {
+          setIsLoadingHistory(true)
+          setMessages([]) // Clear immediately to prevent ghosting
           try {
               const history = await getSessionHistory(sessionId)
               const formattedMessages: Message[] = history.map(msg => ({
@@ -54,12 +57,11 @@ export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assist
                       <p>{msg.content}</p>
                   )
               }))
-              // Only set messages if we have history, otherwise keep empty or existing
-              if (formattedMessages.length > 0) {
-                  setMessages(formattedMessages)
-              }
+              setMessages(formattedMessages)
           } catch (err) {
               console.error("Failed to load history", err)
+          } finally {
+              setIsLoadingHistory(false)
           }
       }
       
@@ -219,7 +221,24 @@ export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assist
 
       {/* Chat Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6" ref={scrollRef}>
-        {messages.length === 0 && !isProcessing && (
+        {isLoadingHistory && (
+             <div className="space-y-4 animate-pulse">
+                <div className="flex flex-row gap-3">
+                    <div className="h-8 w-8 rounded-full bg-slate-200 shrink-0"></div>
+                    <div className="w-[60%] h-12 bg-slate-100 rounded-2xl rounded-tl-none"></div>
+                </div>
+                <div className="flex flex-row-reverse gap-3">
+                    <div className="h-8 w-8 rounded-full bg-slate-200 shrink-0"></div>
+                    <div className="w-[40%] h-8 bg-slate-100 rounded-2xl rounded-tr-none"></div>
+                </div>
+                <div className="flex flex-row gap-3">
+                    <div className="h-8 w-8 rounded-full bg-slate-200 shrink-0"></div>
+                    <div className="w-[75%] h-24 bg-slate-100 rounded-2xl rounded-tl-none"></div>
+                </div>
+             </div>
+        )}
+
+        {!isLoadingHistory && messages.length === 0 && !isProcessing && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-4">
                 <div className="h-16 w-16 bg-slate-100 rounded-full flex items-center justify-center mb-2">
                     <Bot className="h-8 w-8 text-slate-300" />
@@ -231,10 +250,8 @@ export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assist
             </div>
         )}
         
-
-
-        {messages.map((msg) => (
-            <div key={msg.id} className={cn("flex gap-3", msg.role === 'user' ? "flex-row-reverse" : "flex-row")}>
+        {!isLoadingHistory && messages.map((msg) => (
+            <div key={msg.id} className={cn("flex gap-3 fade-in slide-in-from-bottom-2 duration-300", msg.role === 'user' ? "flex-row-reverse" : "flex-row")}>
                 <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
                     msg.role === 'user' ? "bg-slate-100 text-slate-600" : "bg-teal-100 text-teal-600"

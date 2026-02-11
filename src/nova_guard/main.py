@@ -21,6 +21,7 @@ from nova_guard.schemas.patient import (
     AdverseReactionCreate,
     AdverseReactionResponse,
 )
+from nova_guard.schemas.session import SessionResponse
 
 from dotenv import load_dotenv
 load_dotenv(override=True)
@@ -264,12 +265,15 @@ async def process_clinical_interaction(
     }
     
     # 3. Session Management
-    # Ensure session exists and link to patient if provided
-    if patient_id:
-        await session_crud.update_session_patient(db, session_id, patient_id)
-    else:
-        # Just ensure session exists
-        await session_crud.update_session_patient(db, session_id, None)
+    # Ensure session exists and link to patient if provided OR update title with content
+    preview_text = prescription_text or ("Image Uploaded" if file else "New Session")
+    
+    await session_crud.update_session_patient(
+        db, 
+        session_id, 
+        patient_id, 
+        preview_text=preview_text
+    )
 
     # 4. Execution Config
     config = {"configurable": {"thread_id": session_id}}
@@ -315,7 +319,7 @@ async def process_clinical_interaction(
 # Session Endpoints
 # ============================================================================
 
-@app.get("/sessions")
+@app.get("/sessions", response_model=list[SessionResponse])
 async def list_recent_sessions(
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
@@ -327,7 +331,7 @@ async def list_recent_sessions(
     return sessions
 
 
-@app.post("/sessions")
+@app.post("/sessions", response_model=SessionResponse)
 async def create_session(
     session_id: str = Form(...),
     db: AsyncSession = Depends(get_db),

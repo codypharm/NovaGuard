@@ -1,8 +1,11 @@
 import { SafetyHUD } from "@/components/SafetyHUD"
+import { SessionProvider } from "@/context/SessionContext"
 
 function App() {
   return (
-    <SafetyHUD />
+    <SessionProvider>
+      <SafetyHUD />
+    </SessionProvider>
   )
 }
 

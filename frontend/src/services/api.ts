@@ -113,6 +113,7 @@ export interface Session {
     id: string
     title: string
     updated_at: string
+    patient?: Patient
 }
 
 export async function getSessions(limit: number = 20): Promise<Session[]> {

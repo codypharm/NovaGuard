@@ -1,34 +1,54 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Header } from '@/components/Header'
 import { DashboardLayout } from '@/components/DashboardLayout'
 import { SafetyChat } from '@/components/SafetyChat'
 import { PatientForm } from '@/components/PatientForm'
 import { type Verdict } from '@/components/SafetyAnalysis'
 import { processClinicalInteraction, type Patient } from '@/services/api'
-import { useSession } from '@/hooks/useSession'
+import { useSessionContext } from "@/context/SessionContext"
 
 export function SafetyHUD() {
-  const { sessionId } = useSession()
+  const { sessionId, sessionsHistory, refreshSessions } = useSessionContext()
   const [isProcessing, setIsProcessing] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [assistantResponse, setAssistantResponse] = useState<string | null>(null)
-  
+
+  // Sync patient data when session changes
+  useEffect(() => {
+    if (!sessionId) return
+    
+    // Find active session in history
+    const activeSession = sessionsHistory.find(s => s.id === sessionId)
+    
+    // If it has patient data, load it. Otherwise clear.
+    if (activeSession?.patient) {
+        console.log("Loading patient for session:", activeSession.patient.name)
+        setPatient(activeSession.patient)
+    } else {
+        setPatient(null)
+    }
+  }, [sessionId, sessionsHistory])
+
   const handleProcess = async (text: string, file: File | null) => {
-    if (!sessionId) return // Should be ready by mount
+    if (!sessionId) return
     if (!file && !text) return
     
     setIsProcessing(true)
     setVerdict(null) 
     
     try {
-        // Pass sessionId (always) and patientId (if synced)
         const result = await processClinicalInteraction(
             sessionId, 
             patient ? patient.id : null, 
             text, 
             file
         )
+        
+        // Refresh session list to show updated title
+        refreshSessions()
+        
+        // ... handle result ...
         
         // Handle Assistant Response & Verdict
         if (result.verdict) {
@@ -78,7 +98,12 @@ export function SafetyHUD() {
 
         {/* SIDEBAR PROFILE (1 Col) */}
         <div className="lg:col-span-1 h-full overflow-y-auto">
-            <PatientForm initialPatient={patient} onSave={setPatient} className="h-full" />
+            <PatientForm 
+                key={patient ? patient.id : 'new'} 
+                initialPatient={patient} 
+                onSave={setPatient} 
+                className="h-full" 
+            />
         </div>
       </div>
     </DashboardLayout>

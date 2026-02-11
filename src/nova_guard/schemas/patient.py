@@ -121,7 +121,7 @@ class PatientBase(BaseModel):
 class PatientCreate(PatientBase):
     """Schema for creating a new patient."""
 
-    pass
+    allergies: Optional[list[AllergyCreate]] = None
 
 
 class PatientResponse(PatientBase):

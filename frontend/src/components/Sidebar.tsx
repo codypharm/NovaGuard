@@ -1,21 +1,19 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { History, FileText, Settings, Database, PlusCircle, LogOut } from "lucide-react"
-import { useSession } from "@/hooks/useSession"
+import { useSessionContext } from "@/context/SessionContext"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function Sidebar({ className }: SidebarProps) {
-  const { sessionId, sessionsHistory, createNewSession, loading } = useSession()
+  const { sessionId, sessionsHistory, createNewSession, switchSession, loading } = useSessionContext()
 
   const handleNewSession = async () => {
-      const newId = await createNewSession()
-      // Force reload to ensure all components sync with new session
-      window.location.href = `?session=${newId}`
+      await createNewSession()
   }
 
   const handleSwitchSession = (id: string) => {
-      window.location.href = `?session=${id}`
+      switchSession(id)
   }
 
   return (
