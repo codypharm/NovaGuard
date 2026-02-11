@@ -74,7 +74,7 @@ export async function processClinicalInteraction(
     if (text) formData.append("prescription_text", text)
     if (file) formData.append("file", file)
 
-    const headers = await getAuthHeaders();
+    
     // FormData doesn't need Content-Type header (browser sets it)
     // But we need to spread existing headers if we were using a simple dict, 
     // however HeadersInit type + FormData is tricky if we manually set Content-Type.
