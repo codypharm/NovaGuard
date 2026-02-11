@@ -5,6 +5,7 @@ from typing import Optional
 
 from nova_guard.graph.state import PatientState
 from nova_guard.schemas.patient import PrescriptionData
+from langchain_core.messages import AIMessage
 
 
 # ============================================================================
@@ -70,7 +71,7 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
 
     return {
         "intent": clean_intent,
-        "messages": [f"Intent classified as **{clean_intent}**"]
+        # "messages": [f"Intent classified as **{clean_intent}**"]
     }
 
 async def image_intake_node(state: PatientState) -> dict:
@@ -83,7 +84,8 @@ async def image_intake_node(state: PatientState) -> dict:
     image_bytes = state.get("prescription_image")
     
     if not image_bytes:
-        return {"messages": ["❌ Error: No image provided"]}
+        print("❌ Error: No image provided")
+        return {}
         
     extracted = await bedrock_client.process_image(image_bytes)
     
@@ -100,14 +102,14 @@ async def image_intake_node(state: PatientState) -> dict:
         return {
             "extracted_data": extracted,
             "input_type": "image",
-            "messages": ["⚠️ Image analysis failed (Check AWS Creds), using Mock"]
+            # "messages": ["⚠️ Image analysis failed (Check AWS Creds), using Mock"]
         }
         
     return {
         "extracted_data": extracted,
         "input_type": "image",
         "confidence_score": 0.95, # Nova Lite doesn't give a score easily, assume high if success
-        "messages": ["✅ Image analysis complete (Nova Lite)"]
+        # "messages": ["✅ Image analysis complete (Nova Lite)"]
     }
 
 async def text_intake_node(state: PatientState) -> dict:
@@ -115,7 +117,7 @@ async def text_intake_node(state: PatientState) -> dict:
 
     text = state.get("prescription_text", "").strip()
     if not text:
-        return {"messages": ["No input text received"], "extracted_data": None}
+        return {"extracted_data": None}
 
     text_lower = text.lower()
 
@@ -126,10 +128,10 @@ async def text_intake_node(state: PatientState) -> dict:
         drug_candidates = [w for w in words[-4:] if w.istitle() or w.isalpha()]
         if drug_candidates:
             drug = drug_candidates[-1].rstrip(".,!?")
-            url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={drug}"
+            # url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={drug}"
             return {
-                "external_url": url,
-                "messages": [f"🔗 DailyMed link generated for **{drug}**"],
+                # "external_url": url, (Let tools_node handle this)
+                # "messages": [f"🔗 DailyMed link generated for **{drug}**"],
                 "system_action": {"action": "open_source", "drug": drug}
             }
 
@@ -162,7 +164,7 @@ async def text_intake_node(state: PatientState) -> dict:
                     notes="Safety / clinical query"
                 ),
                 "confidence_score": 0.85,
-                "messages": [f"🔍 Clinical query detected — drug: **{drug}**"]
+                # "messages": [f"🔍 Clinical query detected — drug: **{drug}**"]
             }
 
     # ─── Robust LLM Prescription Parsing ────────────────────────────────
@@ -230,7 +232,7 @@ async def text_intake_node(state: PatientState) -> dict:
                 "prescriptions": prescriptions_list,
                 "extracted_data": prescriptions_list[0], # Backward compat
                 "confidence_score": 0.90,
-                "messages": [f"Prescription extracted: {len(prescriptions_list)} drugs found ({', '.join(p.drug_name for p in prescriptions_list)})"]
+                # "messages": [f"Prescription extracted: {len(prescriptions_list)} drugs found ({', '.join(p.drug_name for p in prescriptions_list)})"]
             }
 
     except Exception as e:
@@ -241,7 +243,7 @@ async def text_intake_node(state: PatientState) -> dict:
         "prescriptions": [],
         "extracted_data": None,
         "confidence_score": 0.40,
-        "messages": ["Could not extract prescription details. Please rephrase."]
+        # "messages": ["Could not extract prescription details. Please rephrase."]
     }
 
 def voice_intake_node(state: PatientState) -> dict:
@@ -271,7 +273,7 @@ def voice_intake_node(state: PatientState) -> dict:
     return {
         "extracted_data": extracted,
         "confidence_score": confidence,
-        "messages": [f"✅ Transcribed from voice: {extracted.drug_name} {extracted.dose}"]
+        # "messages": [f"✅ Transcribed from voice: {extracted.drug_name} {extracted.dose}"]
     }
 
 
@@ -331,7 +333,9 @@ def conditional_fetch_patient(state: PatientState) -> str:
     if intent == "SYSTEM_ACTION":
         return "tools_node"
     
-    return END
+    # Fallback to assistant (e.g. for general chat or unknown intent)
+    # instead of END, which would be silent.
+    return "assistant_node"
 
 # ============================================================================
 # PROCESSING NODES - Fetch patient data and run safety checks
@@ -358,7 +362,7 @@ async def fetch_patient_node(state: PatientState) -> dict:
         if not patient:
             return {
                 "patient_profile": None,
-                "messages": [f"❌ Patient ID {state['patient_id']} not found"]
+                # "messages": [f"❌ Patient ID {state['patient_id']} not found"]
             }
         
         # Convert to dict for state
@@ -385,7 +389,7 @@ async def fetch_patient_node(state: PatientState) -> dict:
         
         return {
             "patient_profile": profile,
-            "messages": [f"✅ Loaded profile for {patient.name} (Age: {patient.age_years})"]
+            # "messages": [f"✅ Loaded profile for {patient.name} (Age: {patient.age_years})"]
         }
 
 
@@ -412,19 +416,18 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
                 pass
 
     if not prescriptions:
-         return {"messages": ["⚠️ No identifiable drugs for knowledge lookup"]}
+         # return {"messages": ["⚠️ No identifiable drugs for knowledge lookup"]}
+         return {}
 
     print(f"📖 Fetching FDA labels for: {[p.drug_name for p in prescriptions]}")
 
     drug_info_map = {}
-    messages = []
     
     for prescription in prescriptions:
         drug_name = prescription.drug_name
         label = await openfda_client.get_drug_label(drug_name)
 
         if not label:
-            messages.append(f"⚠️ No FDA label data found for **{drug_name}**")
             continue
 
         refined = {
@@ -438,7 +441,6 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
             "source_url": openfda_client._get_citation(label) or "—"
         }
         drug_info_map[drug_name] = refined
-        messages.append(f"FDA data retrieved for **{drug_name}**")
 
     # Backward compatibility for single-drug nodes (if any)
     first_drug_info = list(drug_info_map.values())[0] if drug_info_map else None
@@ -446,7 +448,6 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     return {
         "drug_info_map": drug_info_map,
         "drug_info": first_drug_info, # Backward compat
-        "messages": messages,
         # Ensure prescriptions is updated in state if we acted as fallback
         "prescriptions": prescriptions 
     }
@@ -500,7 +501,7 @@ def auditor_node(state: PatientState) -> dict:
 
     return {
         "safety_flags": flags,
-        "messages": [f"Audit (history): {len(flags)} flag(s) found"]
+        # "messages": [f"Audit (history): {len(flags)} flag(s) found"]
     }
 
 async def assistant_node(state: PatientState) -> dict:
@@ -632,21 +633,19 @@ async def assistant_node(state: PatientState) -> dict:
     history = state.get("messages", []) or []
 
     try:
-        response = await bedrock_client.chat(
+        response_text = await bedrock_client.chat(
             system_prompt=system_prompt,
             user_query=current_input,
             history=history,
         )
+        response = AIMessage(content=response_text)
     except Exception as exc:
         error_preview = str(exc)[:140].replace("\n", " ")
-        response = {
-            "role": "assistant",
-            "content": (
-                "**System Notice**\n\n"
-                f"Temporary issue contacting clinical reasoning engine ({error_preview}).\n"
-                "Please try again in a moment or rephrase."
-            )
-        }
+        response = AIMessage(content=(
+             "**System Notice**\n\n"
+             f"Temporary issue contacting clinical reasoning engine ({error_preview}).\n"
+             "Please try again in a moment or rephrase."
+        ))
 
     return {
         "messages": [response],
@@ -668,7 +667,7 @@ async def tools_node(state: PatientState) -> dict:
     messages = state.get("messages", [])
     
     if not action_request:
-        return {"messages": messages + ["⚠️ Tools Node called without a specific action."]}
+        return {"messages": messages + [AIMessage(content="⚠️ Tools Node called without a specific action.")]}
 
     action = action_request.get("action")
     drug = action_request.get("drug")
@@ -679,7 +678,7 @@ async def tools_node(state: PatientState) -> dict:
         # Instead, we send the URL to the React frontend to handle window.open().
         source_url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?query={drug}"
         return {
-            "messages": messages + [f"🔗 Generated clinical reference link for {drug}."],
+            "messages": messages + [AIMessage(content=f"🔗 Generated clinical reference link for {drug}.")],
             "external_url": source_url,
             "system_action": None  # Clear the action once handled
         }
@@ -689,11 +688,11 @@ async def tools_node(state: PatientState) -> dict:
         # Logic to trigger your report generation service (e.g., using ReportLab or FPDF)
         report_status = "📄 Clinical Audit Report (PDF) is being generated for the pharmacist."
         return {
-            "messages": messages + [report_status],
+            "messages": messages + [AIMessage(content=report_status)],
             "system_action": None
         }
 
-    return {"messages": messages + ["❌ Tool action not recognized."]}
+    return {"messages": messages + [AIMessage(content="⚠️ Tool action failed to trigger a response.")]}
 
 async def openfda_node(state: PatientState) -> dict:
     """
@@ -728,7 +727,7 @@ async def openfda_node(state: PatientState) -> dict:
     
     return {
         "safety_flags": combined_flags,
-        "messages": [f"✅ OpenFDA checks complete: Found {len(all_new_flags)} new flag(s) across {len(prescriptions)} drugs"]
+        # "messages": [f"✅ OpenFDA checks complete: Found {len(all_new_flags)} new flag(s) across {len(prescriptions)} drugs"]
     }
 
 
@@ -759,5 +758,5 @@ def verdict_node(state: PatientState) -> dict:
 
     return {
         "verdict": verdict,
-        "messages": [f"Verdict: **{status.upper()}** — {msg}"]
+        # "messages": [f"Verdict: **{status.upper()}** — {msg}"]
     }

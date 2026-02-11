@@ -89,16 +89,7 @@ def create_prescription_workflow(checkpointer=None):
     
     # 3.5 Text Intake Routing (can go to fetch_patient OR tools_node based on parsed intent)
     def route_text_intake(state: PatientState):
-        if state.get("system_action") or state.get("external_url"):
-             # If text intake produced an action (like open source), go to tools
-             # Actually, if it produced external_url, it might be done or need tools to log it?
-             # text_intake logic for 'open source' returns 'external_url'. 
-             # If we want to finalize, we might need to go to END or tools.
-             # If we go to tools, tools_node needs to handle it.
-             # But text_intake ALREADY generated the URL in my previous edit.
-             # So maybe we just go to END? Or fetch_patient?
-             if state.get("external_url"):
-                 return END
+        if state.get("system_action"):
              return "tools_node"
         return "fetch_patient"
 
@@ -121,7 +112,6 @@ def create_prescription_workflow(checkpointer=None):
             "auditor": "auditor",
             "fetch_medical_knowledge": "fetch_medical_knowledge",
             "assistant_node": "assistant_node", # If the intent was just a query
-            "END": END
         }
     )
     
@@ -138,10 +128,7 @@ def create_prescription_workflow(checkpointer=None):
     # ========================================================================
     # Compile with checkpointer (enables interrupts)
     # ========================================================================
-    
-    # ========================================================================
-    # Compile with checkpointer (enables interrupts)
-    # ========================================================================
+
     
     # Checkpointer is now passed in or None (memory is default/fallback, but we want Postgres)
     # If checkpointer is None, we can default to MemorySaver for dev/tests if needed, 

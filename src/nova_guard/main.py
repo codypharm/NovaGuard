@@ -246,17 +246,21 @@ async def process_clinical_interaction(
     Handles images, text prescriptions, and assistant follow-ups.
     """
     # from nova_guard.graph.workflow import prescription_workflow
-    
+    from langchain_core.messages import HumanMessage
     
     # 1. Prepare Input Data
     image_bytes = await file.read() if file else None
     
     # 2. Initialize State 
+    initial_messages = []
+    if prescription_text:
+        initial_messages.append(HumanMessage(content=prescription_text))
+    
     initial_state = {
         "patient_id": patient_id,
         "prescription_text": prescription_text,
         "prescription_image": image_bytes,
-        # chat_history is managed by checkpointer, but we can seed it here if needed
+        "messages": initial_messages,
     }
     
     # 3. Session Management
@@ -374,10 +378,22 @@ async def get_session_history(
         
         # Transform to frontend format
         history = []
+        
+        # Phrases to filter out (internal system logs)
+        ignored_prefixes = [
+            "Intent classified as",
+            "✅", "❌", "⚠️", "🔍", "💊", "🔗", "📄", "📷", "🎤", "⌨️", 
+            "Verdict:", "Audit (history):"
+        ]
+        
         for msg in messages:
             role = "user" if msg.type == "human" else "assistant"
             content = msg.content
             
+            # Skip internal system logs for the frontend
+            if role == "assistant" and any(str(content).strip().startswith(p) for p in ignored_prefixes):
+                continue
+
             # Simple ID generation (in reality, msg.id might exist or we use index)
             msg_id = getattr(msg, "id", f"{role}-{len(history)}")
             
