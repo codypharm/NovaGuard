@@ -393,7 +393,7 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
         # Use LLM to extract drug name from natural language query
         from nova_guard.services.bedrock import bedrock_client
         
-        extraction_prompt = "Extract ONLY the generic drug name from this text. Return just the name, nothing else."
+        extraction_prompt = "Extract ONLY the generic drug name from this text. Correct any spelling errors to the standard clinical generic name (e.g., 'amodiapine' -> 'Amodiaquine'). Return just the name, nothing else."
         drug_name = await bedrock_client.extract_entity(
             text=state["prescription_text"],
             prompt=extraction_prompt
@@ -422,6 +422,8 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
         "boxed_warning": openfda_client._extract_field(label_data, "boxed_warning"),
         "source_url": openfda_client._get_citation(label_data)
     }
+
+    print("refined_knowledge", refined_knowledge)
     
     return {
         "drug_info": refined_knowledge,
@@ -483,7 +485,7 @@ async def assistant_node(state: PatientState) -> dict:
 
     # 1. Dynamic Instruction Set based on Intent
     intent_instructions = {
-        "MEDICAL_KNOWLEDGE": "Focus on summarizing the provided FDA drug labeling. Explain indications, dosage, and side effects clearly.",
+        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications,  key mechanisms and many more informations. Assume the user is a pharmacist requiring professional depth.",
         "CLINICAL_QUERY": "Focus on the intersection of the patient's history and the current meds. Be extremely cautious about allergy and interaction risks.",
         "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status.",
         "GENERAL_CHAT": "Be friendly, professional, and helpful. Maintain a Pharmacist assistant persona but feel free to engage in small talk with the pharmacist."
@@ -503,7 +505,6 @@ async def assistant_node(state: PatientState) -> dict:
     - Use the 'FDA DATA' specifically for dosage and mechanism questions.
     - Use the 'PATIENT PROFILE' for allergy and history questions.
     - If suggesting an alternative, append: 'Substitution requires physician authorization.'
-    - Keep responses under 150 words to maintain professional speed.
     """
 
     # 3. Message History Handling

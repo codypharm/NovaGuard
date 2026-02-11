@@ -23,7 +23,7 @@ class RxNormClient:
         Returns RxCUI, preferred name, ingredients, brand names, ATC classes, etc.
         """
         try:
-            # Step 1: Find RxCUI
+            # Step 1: Find RxCUI (Exact Search)
             encoded_name = urllib.parse.quote(drug_name)
             url = f"{self.BASE_URL}/drugs.json?name={encoded_name}"
             resp = await self.client.get(url)
@@ -31,36 +31,61 @@ class RxNormClient:
             data = resp.json()
             
             concept_group = data.get("drugGroup", {}).get("conceptGroup", [])
+            
+            # === FALLBACK: Approximate Matching (Fuzzy) ===
             if not concept_group:
-                return {"success": False, "error": "No match found in RxNorm", "raw_name": drug_name}
+                print(f"⚠️ No exact RxNorm match for '{drug_name}', trying approximate search...")
+                fuzzy_url = f"{self.BASE_URL}/approximateTerm.json?term={encoded_name}&maxEntries=1"
+                fuzzy_resp = await self.client.get(fuzzy_url)
+                fuzzy_data = fuzzy_resp.json()
+                
+                candidate = fuzzy_data.get("approximateGroup", {}).get("candidate", [])
+                if candidate:
+                    rxcui = candidate[0].get("rxcui")
+                    score = float(candidate[0].get("score", 0))
+                    print(f"✅ Found approximate match: RxCUI {rxcui} (Score: {score})")
+                    
+                    # CRITICAL: Update drug_name to the valid one if possible? 
+                    # Actually, we rely on fetching properties below to get the 'Preferred Name'.
+                    # If properties fetch fails to return a name, we might fall back to the typo.
+                    pass 
+                else:
+                     return {"success": False, "error": "No match found in RxNorm (including fuzzy)", "raw_name": drug_name}
+            else:
+                 rxcui = None # Reset for exact logic below
             
-            # Prefer SCD/SBD/BN/IN
-            # SCD = Semantic Clinical Drug, SBD = Semantic Branded Drug
-            # BN = Brand Name, IN = Ingredient, PIN = Precise Ingredient
-            target_ttys = ["SCD", "SBD", "BN", "IN", "PIN"]
-            
-            # Flatten all concepts
-            all_concepts = []
-            for group in concept_group:
-                tty = group.get("tty")
-                if tty in target_ttys and "conceptProperties" in group:
-                    all_concepts.extend(group["conceptProperties"])
-            
-            if not all_concepts:
-                # Fallback to any concept if preferred restricted types not found
+            # If we didn't find via fuzzy, try exact logic parsing
+            if concept_group:
+                # Prefer SCD/SBD/BN/IN
+                # SCD = Semantic Clinical Drug, SBD = Semantic Branded Drug
+                # BN = Brand Name, IN = Ingredient, PIN = Precise Ingredient
+                target_ttys = ["SCD", "SBD", "BN", "IN", "PIN"]
+                
+                # Flatten all concepts
+                all_concepts = []
                 for group in concept_group:
-                    if "conceptProperties" in group:
+                    tty = group.get("tty")
+                    if tty in target_ttys and "conceptProperties" in group:
                         all_concepts.extend(group["conceptProperties"])
-            
-            if not all_concepts:
-                 return {"success": False, "error": "No concepts found", "raw_name": drug_name}
+                
+                if not all_concepts:
+                    # Fallback to any concept if preferred restricted types not found
+                    for group in concept_group:
+                        if "conceptProperties" in group:
+                            all_concepts.extend(group["conceptProperties"])
+                
+                if not all_concepts:
+                     return {"success": False, "error": "No concepts found", "raw_name": drug_name}
 
-            # Simple heuristic: pick the first one from our preferred list if possible
-            best_concept = all_concepts[0]
-            rxcui = best_concept.get("rxcui")
+                # Simple heuristic: pick the first one from our preferred list if possible
+                best_concept = all_concepts[0]
+                rxcui = best_concept.get("rxcui")
             
             if not rxcui:
                 return {"success": False, "error": "No RxCUI found", "raw_name": drug_name}
+            
+            # Step 2: Get properties
+            # ... (rest of function continues as before)
             
             # Step 2: Get properties
             detail_url = f"{self.BASE_URL}/rxcui/{rxcui}/properties.json"

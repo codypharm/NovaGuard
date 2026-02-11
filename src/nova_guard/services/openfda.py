@@ -46,7 +46,7 @@ class OpenFDAClient:
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
                 print(f"⚠️ Exact match failed for '{drug_name}', trying fuzzy search...")
-                # 2. Fallback to Fuzzy Match (no quotes)
+                # 2. Fallback to Fuzzy Match (no quotes on fields)
                 try:
                     params["search"] = f'openfda.brand_name:{drug_name} OR openfda.generic_name:{drug_name}'
                     response = await self.client.get(self.BASE_URL, params=params)
@@ -55,8 +55,18 @@ class OpenFDAClient:
                     if data.get("results"):
                         return data["results"][0]
                 except Exception as e2:
-                    print(f"❌ Fuzzy search also failed: {e2}")
-                    return None
+                    print(f"⚠️ Fuzzy search failed for '{drug_name}', trying global search...")
+                    # 3. Last Resort: Global Search (any field contains the name)
+                    try:
+                        params["search"] = f'"{drug_name}"'
+                        response = await self.client.get(self.BASE_URL, params=params)
+                        response.raise_for_status()
+                        data = response.json()
+                        if data.get("results"):
+                            return data["results"][0]
+                    except Exception as e3:
+                         print(f"❌ Global search also failed: {e3}")
+                         return None
             
             print(f"❌ OpenFDA API error: {e}")
             return None
@@ -442,6 +452,27 @@ class OpenFDAClient:
         if not label:
             print(f"⚠️ No OpenFDA label found for '{check_name}'")
             return all_flags
+            
+        # Step 2b: Verify Label Match (Avoid False Positives from Global Search)
+        # If we did a global search, we might get a label for "Drug A" that mentions "Drug B"
+        # We need to warn the user if the returned label isn't actually for the requested drug.
+        
+        returned_brand = (self._extract_field(label, "brand_name") or "").lower()
+        returned_generic = (self._extract_field(label, "generic_name") or "").lower()
+        target_name = check_name.lower()
+        
+        # Check if target is in the returned names
+        # We use a loose check because "Amodiaquine Hydrochloride" contains "Amodiaquine"
+        match_found = (target_name in returned_brand) or (target_name in returned_generic)
+        
+        if not match_found:
+             all_flags.append(SafetyFlag(
+                severity="warning",
+                category="mismatch",
+                message=f"⚠️ INDIRECT MATCH: Found label for '{returned_brand or returned_generic}', which mentions '{check_name}'. Dosing may not apply directly.",
+                source="OpenFDA",
+                citation=self._get_citation(label)
+            ))
             
         # Step 3: Get Citation
         citation = self._get_citation(label)
