@@ -201,7 +201,7 @@ async def process_clinical_interaction(
     }
     
     # 3. Execution Config (Threaded by Patient ID for persistence)
-    config = {"configurable": {"thread_id": f"session-{patient_id}"}}
+    config = {"configurable": {"thread_id": f"session-{1}"}}
     
     try:
         # Initial invocation triggers the Gateway Supervisor

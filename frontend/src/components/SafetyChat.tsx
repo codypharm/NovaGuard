@@ -41,8 +41,8 @@ export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse
         role: 'assistant',
         timestamp: new Date(),
         content: (
-          <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{assistantResponse}</ReactMarkdown>
+          <div className="prose prose-sm prose-slate max-w-none dark:prose-invert prose-headings:text-slate-900 prose-h2:text-slate-900 prose-h3:text-slate-900 prose-p:text-slate-800 prose-li:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(assistantResponse || '')}</ReactMarkdown>
           </div>
         )
       }

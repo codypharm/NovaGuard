@@ -12,55 +12,65 @@ from nova_guard.schemas.patient import PrescriptionData
 # ============================================================================
 
 async def gateway_supervisor_node(state: PatientState) -> dict:
-    """
-    The 'Air Traffic Controller' for Nova Guard.
-    Analyzes input modality and user intent to determine the clinical path.
-    """
     from nova_guard.services.bedrock import bedrock_client
-    
-    print("Gateway Supervisor: Analyzing multi-modal intent...")
-    
-    # 1. Gather all inputs from the current state
+
+    print("🌉 Gateway Supervisor: classifying intent...")
+
     text = state.get("prescription_text", "")
     has_image = state.get("prescription_image") is not None
-    has_voice = state.get("prescription_audio") is not None
-    
-    # 2. Voice Handling (Phase 2 Integration)
-    # If audio is present, we'd use Nova 2 Sonic here to transcribe it
-    # For now, we assume the text or image is the primary driver.
+    has_voice = state.get("prescription_audio") is not None  # currently unused
 
-    # 3. Intent Classification via Nova 2 Lite
-    # This prompt tells Nova exactly how to categorize the pharmacist's goal
-    classification_prompt = """
-    You are a Medical Intent Classifier. Analyze the user's input and classify it into ONE category:
-    
-    - AUDIT: User wants to process a NEW prescription (via image upload or dictation).
-    - CLINICAL_QUERY: User is asking a question about the patient's history, allergies, or meds.
-    - MEDICAL_KNOWLEDGE: User is asking a general medical question (e.g., 'What is the dosage for X?').
-    - SYSTEM_ACTION: User wants to perform a tool action like 'open source' or 'generate report'.
-    - GENERAL_CHAT: User is greeting, saying thanks, or engaging in small talk (e.g., 'Hello', 'Thanks').
+    classification_prompt = """\
+You are a precise medical intent classifier for a pharmacist decision-support system.
 
-    Return ONLY the category name, do not return reasoning.
-    """
-    
-    # We pass the text and a flag if an image exists to help Nova decide
-    intent = await bedrock_client.classify_intent(
-        text=text, 
-        has_image=has_image, 
+Classify the input into **exactly one** of these categories:
+
+AUDIT          - processing a new prescription (image, typed Rx, voice dictation)
+CLINICAL_QUERY - question about this specific patient (allergies, interactions, history…)
+MEDICAL_KNOWLEDGE - general pharmacology / drug information question
+SYSTEM_ACTION  - user requests an action (open source, generate report, etc.)
+GENERAL_CHAT   - greeting, thanks, meta conversation, off-topic
+
+Rules:
+- Return **only** the category name — nothing else
+- Prefer AUDIT when prescription-like content is present (dose, frequency, sig, etc.)
+- Prefer CLINICAL_QUERY when patient-specific context is mentioned
+"""
+
+    raw_intent = await bedrock_client.classify_intent(
+        text=text,
+        has_image=has_image,
         prompt=classification_prompt
     )
-    print(f"Intent: {intent}")
-    # Clean the output (Nova might return 'Intent: AUDIT', we just want 'AUDIT')
-    intent = intent.strip().upper()
-    if "AUDIT" in intent: intent = "AUDIT"
-    elif "QUERY" in intent: intent = "CLINICAL_QUERY"
-    elif "KNOWLEDGE" in intent: intent = "MEDICAL_KNOWLEDGE"
-    elif "ACTION" in intent: intent = "SYSTEM_ACTION"
-    elif "CHAT" in intent or "GENERAL" in intent: intent = "GENERAL_CHAT"
+
+    intent = raw_intent.strip().upper()
+
+    # More robust mapping (handles model hallucinations better)
+    intent_map = {
+        "AUDIT": "AUDIT",
+        "PRESCRIPTION": "AUDIT",
+        "NEW RX": "AUDIT",
+        "CLINICAL_QUERY": "CLINICAL_QUERY",
+        "QUERY": "CLINICAL_QUERY",
+        "PATIENT QUESTION": "CLINICAL_QUERY",
+        "MEDICAL_KNOWLEDGE": "MEDICAL_KNOWLEDGE",
+        "DRUG INFO": "MEDICAL_KNOWLEDGE",
+        "SYSTEM_ACTION": "SYSTEM_ACTION",
+        "ACTION": "SYSTEM_ACTION",
+        "GENERAL_CHAT": "GENERAL_CHAT",
+        "CHAT": "GENERAL_CHAT",
+    }
+
+    clean_intent = intent_map.get(intent)
+    if clean_intent is None:
+        clean_intent = "GENERAL_CHAT"  # safest fallback
+        print(f"⚠️  Intent fallback → GENERAL_CHAT (raw: {raw_intent})")
+
+    print(f"→ Intent: {clean_intent}")
 
     return {
-        "intent": intent,
-        "messages": [f"Supervisor classified intent as: {intent}"]
+        "intent": clean_intent,
+        "messages": [f"Intent classified as **{clean_intent}**"]
     }
 
 async def image_intake_node(state: PatientState) -> dict:
@@ -100,135 +110,88 @@ async def image_intake_node(state: PatientState) -> dict:
         "messages": ["✅ Image analysis complete (Nova Lite)"]
     }
 
+async def text_intake_node(state: PatientState) -> dict:
+    print("⌨️ Text intake node")
 
-def text_intake_node(state: PatientState) -> dict:
-    """
-    Parse typed prescription text OR natural language queries.
-    
-    Handles two types of input:
-    1. Prescription format: "Lisinopril 10mg once daily"
-    2. Natural language query: "is patient allergic to paracetamol"
-    
-    If it's a query (contains "allergic", "allergy", "check"), it will:
-    - Extract the drug name
-    - Mark it as a safety check query (not a new prescription)
-    """
-    print("⌨️ Text Intake: Parsing typed input...")
-    
-    text = state["prescription_text"]
+    text = state.get("prescription_text", "").strip()
     if not text:
-        return {
-            "extracted_data": None,
-            "confidence_score": 0.0,
-            "messages": ["❌ No text provided"]
-        }
-    
+        return {"messages": ["No input text received"], "extracted_data": None}
+
     text_lower = text.lower()
-    
-    # ========================================================================
-    # Check if this is a QUERY (not a prescription)
-    # ========================================================================    # Check if this is a QUERY or COMMAND
-    query_keywords = ["allergic", "allergy", "check", "does", "is", "has", "open", "show"]
-    is_query = any(keyword in text_lower for keyword in query_keywords)
-    
-    if is_query:
-        # Check for "Open Source" command
-        if "open" in text_lower or "show" in text_lower:
-             # Basic extraction of drug name for the command
-             # "Open source for Aspirin" -> "Aspirin"
-             words = text.split()
-             # This is a naive extraction for Phase 1 demo
-             # A real system would use specific NER or the NLP service
-             potential_drug = words[-1] # Assume last word is drug for now, or use nlp service
-             
-             # Let's try to be a bit smarter if "for" is present
-             if "for" in words:
-                 try:
-                     for_index = words.index("for")
-                     potential_drug = " ".join(words[for_index+1:]).strip("?.!")
-                 except:
-                     pass
-            
-             if potential_drug:
-                 # Check if we can normalize it to get a good URL
-                 # We will just open the OpenFDA search or DailyMed search for now.
-                 
-                 url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={potential_drug}"
-                 print(f"🖥️ Generating source link for {potential_drug}: {url}")
-                 
-                 return {
-                     "input_type": "text",
-                     "prescription_text": text,
-                     "external_url": url,
-                     "messages": [f"🚀 Generated DailyMed link for '{potential_drug}'"]
-                 }
 
-        # Use NLP service for structured allergy/safety queries
-        drug_patterns = [
-            r"allergic to\s+(\w+)",
-            r"allergy to\s+(\w+)",
-            r"has\s+(\w+)\s+allergy",
-            r"check\s+(\w+)",
-        ]
-        
-        drug_name = None
-        for pattern in drug_patterns:
-            match = re.search(pattern, text_lower)
-            if match:
-                drug_name = match.group(1)
-                break
-        
-        if drug_name:
-            # This is a safety check query, not a new prescription
-            extracted = PrescriptionData(
-                drug_name=drug_name,
-                dose="N/A",  # Not a prescription
-                frequency="N/A",
-                notes=f"Safety check query: {text}"
-            )
-            
+    # ─── Special commands first ────────────────────────────────────────
+    if any(w in text_lower for w in ["open source", "show source", "source for"]):
+        # naive last-drug heuristic → can be improved later with LLM
+        words = text.split()
+        drug_candidates = [w for w in words[-4:] if w.istitle() or w.isalpha()]
+        if drug_candidates:
+            drug = drug_candidates[-1].rstrip(".,!?")
+            url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?labeltype=all&query={drug}"
             return {
-                "extracted_data": extracted,
-                "confidence_score": 1.0,
-                "messages": [f"🔍 Query detected: Checking {drug_name} safety for patient"]
+                "external_url": url,
+                "messages": [f"🔗 DailyMed link generated for **{drug}**"],
+                "system_action": {"action": "open_source", "drug": drug}
             }
-        else:
-            return {
-                "extracted_data": None,
-                "confidence_score": 0.0,
-                "messages": ["❌ Could not extract drug name from query"]
-            }
-    
-    # ========================================================================
-    # Otherwise, parse as PRESCRIPTION
-    # ========================================================================
-    # Pattern: drug_name dose frequency
-    pattern = r"(\w+)\s+(\d+(?:\.\d+)?(?:mg|ml|g))\s+(.+)"
-    match = re.match(pattern, text, re.IGNORECASE)
-    
-    if match:
-        extracted = PrescriptionData(
-            drug_name=match.group(1),
-            dose=match.group(2),
-            frequency=match.group(3),
-            notes="Parsed from text input"
+
+    # ─── Query detection ────────────────────────────────────────────────
+    query_indicators = [
+        "allergic", "allergy", "allergies", "reaction", "interact", "safe", "contraindicat",
+        "check", "does the patient", "is the patient", "can we give", "should we"
+    ]
+
+    is_likely_query = any(ind in text_lower for ind in query_indicators)
+
+    if is_likely_query:
+        # Very simple drug name extraction — improve later
+        from nova_guard.services.bedrock import bedrock_client
+
+        drug = await bedrock_client.extract_entity(
+            text=text,
+            prompt="Extract only the most likely generic drug name mentioned in this pharmacist question. Return only the name or 'NONE'."
         )
-        confidence = 1.0  # Text parsing is deterministic
-        
+        drug = drug.strip().upper()
+        if drug == "NONE":
+            drug = None
+
+        if drug:
+            return {
+                "extracted_data": PrescriptionData(
+                    drug_name=drug,
+                    dose="N/A",
+                    frequency="N/A",
+                    notes="Safety / clinical query"
+                ),
+                "confidence_score": 0.85,
+                "messages": [f"🔍 Clinical query detected — drug: **{drug}**"]
+            }
+
+    # ─── Classic prescription parsing fallback ──────────────────────────
+    # Keep your existing regex, but make it optional groups
+    pattern = r"(?P<drug>[A-Za-z][\w\-/ ]{2,})\s+(?P<dose>[\d.]+(?:\s*(?:mg|mcg|mg/ml|g|IU|%))?)?.*?(?P<freq>(?:once|twice|three times)?\s*(?:daily|every\s*\w+|q\w+d?))?.*$"
+    m = re.search(pattern, text, re.I)
+
+    if m and m.group("drug"):
+        drug = m.group("drug").strip()
+        dose = (m.group("dose") or "unknown").strip()
+        freq = (m.group("freq") or "unknown").strip()
+
         return {
-            "extracted_data": extracted,
-            "confidence_score": confidence,
-            "messages": [f"✅ Parsed prescription: {extracted.drug_name} {extracted.dose}"]
-        }
-    else:
-        # Fallback: Treat as generalized text/query for the assistant
-        # This handles "Hello", "How are you?", or complex questions without specific drug names
-        return {
-            "extracted_data": None,
-            "confidence_score": 0.5,
-            "messages": ["ℹ️ Processing as general clinical query"]
+            "extracted_data": PrescriptionData(
+                drug_name=drug,
+                dose=dose,
+                frequency=freq,
+                notes="Basic text parse"
+            ),
+            "confidence_score": 0.75 if dose != "unknown" else 0.55,
+            "messages": [f"Prescription parse: **{drug}** {dose} {freq}"]
         }
 
+    # ultimate fallback
+    return {
+        "extracted_data": None,
+        "confidence_score": 0.40,
+        "messages": ["Treating input as general clinical question"]
+    }
 
 def voice_intake_node(state: PatientState) -> dict:
     """
@@ -379,150 +342,225 @@ async def fetch_patient_node(state: PatientState) -> dict:
 
 
 async def fetch_medical_knowledge_node(state: PatientState) -> dict:
-    """
-    Fetches raw medical labeling data for the Assistant to summarize.
-    Works for both new prescriptions and general chat questions.
-    """
     from nova_guard.services.openfda import openfda_client
-    
-    # 1. Resolve the drug name from state
+
     drug_name = None
-    if state.get("extracted_data"):
-        drug_name = state["extracted_data"].drug_name
-    elif state.get("prescription_text"):
-        # Use LLM to extract drug name from natural language query
+
+    if ed := state.get("extracted_data"):
+        drug_name = ed.drug_name
+    elif txt := state.get("prescription_text"):
         from nova_guard.services.bedrock import bedrock_client
-        
-        extraction_prompt = "Extract ONLY the generic drug name from this text. Correct any spelling errors to the standard clinical generic name (e.g., 'amodiapine' -> 'Amodiaquine'). Return just the name, nothing else."
-        drug_name = await bedrock_client.extract_entity(
-            text=state["prescription_text"],
-            prompt=extraction_prompt
-        )
-        # Clean up any potential extra chars
-        drug_name = drug_name.strip().split("\n")[0].replace(".", "").strip()
+        try:
+            drug_name = await bedrock_client.extract_entity(
+                text=txt,
+                prompt="Return only the primary generic drug name mentioned. Return NONE if no drug is found."
+            )
+            drug_name = drug_name.strip()
+            if drug_name.upper() == "NONE":
+                drug_name = None
+        except:
+            pass
 
     if not drug_name:
-        return {"messages": ["❌ System could not identify a drug name for lookup."]}
+        return {"messages": ["⚠️ No identifiable drug name for knowledge lookup"]}
 
-    print(f"🔍 Knowledge Lookup: Fetching label for {drug_name}...")
-    
-    # 2. Use your existing 'get_drug_label' method
-    label_data = await openfda_client.get_drug_label(drug_name)
-    
-    if not label_data:
-        return {"messages": [f"⚠️ No official FDA label found for '{drug_name}'."]}
+    print(f"📖 Fetching FDA label: {drug_name}")
 
-    # 3. Filter the massive JSON into 'Assistant-friendly' snippets
-    # This prevents hitting token limits and keeps the AI focused.
-    refined_knowledge = {
+    label = await openfda_client.get_drug_label(drug_name)
+
+    if not label:
+        return {"messages": [f"⚠️ No FDA label data found for **{drug_name}**"]}
+
+    refined = {
         "drug_name": drug_name,
-        "indications": openfda_client._extract_field(label_data, "indications_and_usage"),
-        "dosage": openfda_client._extract_field(label_data, "dosage_and_administration"),
-        "contraindications": openfda_client._extract_field(label_data, "contraindications"),
-        "boxed_warning": openfda_client._extract_field(label_data, "boxed_warning"),
-        "source_url": openfda_client._get_citation(label_data)
+        "indications": openfda_client._extract_field(label, "indications_and_usage") or "—",
+        "dosage": openfda_client._extract_field(label, "dosage_and_administration") or "—",
+        "contraindications": openfda_client._extract_field(label, "contraindications") or "—",
+        "boxed_warning": openfda_client._extract_field(label, "boxed_warning") or "None",
+        "source_url": openfda_client._get_citation(label) or "—"
     }
 
-    print("refined_knowledge", refined_knowledge)
-    
     return {
-        "drug_info": refined_knowledge,
-        "messages": [f" Retrieved medical knowledge for {drug_name}."]
+        "drug_info": refined,
+        "messages": [f"FDA data retrieved for **{drug_name}**"]
     }
-
 
 def auditor_node(state: PatientState) -> dict:
-    """
-    Cross-reference new prescription against patient history.
-    
-    This is a preliminary check before OpenFDA:
-    - Check if drug is in patient's allergy list
-    - Check if patient had adverse reactions to this drug before
-    - Check for duplicate medications
-    """
     from nova_guard.schemas.patient import SafetyFlag
-    
-    print("🔬 Auditing prescription against patient history...")
-    
+
     flags = []
-    extracted = state["extracted_data"]
-    profile = state["patient_profile"]
-    
+    extracted = state.get("extracted_data")
+    profile = state.get("patient_profile", {})
+
     if not extracted or not profile:
         return {"safety_flags": flags}
-    
-    drug_name = extracted.drug_name.lower()
-    
-    # Check adverse reactions (Historical)
-    for reaction in profile.get("adverse_reactions", []):
-        if drug_name in reaction["drug_name"].lower():
+
+    drug = extracted.drug_name.lower()
+
+    # Existing adverse reaction check
+    for rx in profile.get("adverse_reactions", []):
+        if drug in rx.get("drug_name", "").lower():
             flags.append(SafetyFlag(
                 severity="warning",
-                category="adverse_reaction",
-                message=f"Patient had {reaction['severity']} reaction to {reaction['drug_name']}: {reaction['symptoms']}",
-                source="Patient History"
+                category="prior_adverse_reaction",
+                message=f"Prior {rx['severity']} reaction to {rx['drug_name']}: {rx['symptoms']}",
+                source="Patient history"
             ))
-            
-    # Note: Allergies, Duplicates, and Label Checks are now handled by OpenFDAClient in the next node ('openfda').
-    
+
+    # Simple duplicate therapy check (phase 1 version)
+    current_drugs = [d["drug_name"].lower() for d in profile.get("current_drugs", [])]
+    if drug in current_drugs:
+        flags.append(SafetyFlag(
+            severity="warning",
+            category="therapeutic_duplication",
+            message=f"Patient already taking **{drug.title()}**",
+            source="Current medication list"
+        ))
+
     return {
         "safety_flags": flags,
-        "messages": [f"🔬 Auditor checks complete (History). Proceeding to FDA checks..."]
+        "messages": [f"Audit (history): {len(flags)} flag(s) found"]
     }
 
 async def assistant_node(state: PatientState) -> dict:
     """
-    Enhanced clinical dialogue engine.
-    Adapts its persona based on the detected Intent.
+    Clinical dialogue & decision-support engine.
+    Adapts behavior strongly based on detected intent.
     """
     from nova_guard.services.bedrock import bedrock_client
-    
-    intent = state.get("intent", "CLINICAL_QUERY")
-    user_query = state.get("prescription_text")
-    profile = state.get("patient_profile", {})
-    drug_info = state.get("drug_info", {})
-    audit_verdict = state.get("verdict")
+    import json
 
-    # 1. Dynamic Instruction Set based on Intent
-    intent_instructions = {
-        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications, key mechanisms, and black-box warnings. Assume the user is a pharmacist requiring professional depth. ",
-        "CLINICAL_QUERY": "Focus on the intersection of the patient's history and the current meds. Be extremely cautious about allergy and interaction risks.",
-        "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status.",
-        "GENERAL_CHAT": "Be friendly, professional, and helpful. Maintain a Pharmacist assistant persona but feel free to engage in small talk with the pharmacist."
+    # ─── 1. Intent fallback & normalization ────────────────────────────────
+    intent = (state.get("intent") or "GENERAL_CHAT").strip().upper()
+
+    # ─── 2. Role instructions per intent (short & explicit) ────────────────
+    role_map = {
+        "MEDICAL_KNOWLEDGE": (
+            "Act as evidence-based clinical pharmacist. "
+            "Answer strictly using provided FDA reference data only. "
+            "Include: mechanism of action, approved indications, "
+            "standard dosing & key adjustments (renal/hepatic/elderly), "
+            "black box warnings (quote if present), major contraindications, "
+            "serious warnings, clinically important interactions, "
+            "pregnancy/lactation risks. Use precise, professional language."
+        ),
+        "CLINICAL_QUERY": (
+            "Act as high-reliability patient-safety clinical decision support. "
+            "Cross-reference allergies / ADRs / comorbidities / organ function / "
+            "age / pregnancy status against proposed medication(s). "
+            "Clearly highlight: allergy/cross-reactivity risk, serious DDIs, "
+            "duplicate therapy, required dose adjustments, critical monitoring. "
+            "Use cautious, factual, non-alarmist tone."
+        ),
+        "AUDIT": (
+            "Explain automated prescription safety audit results to pharmacist. "
+            "Structure answer:\n"
+            "1. Overall verdict (Red/Yellow/Green)\n"
+            "2. Which rules/flags triggered\n"
+            "3. Clinical rationale & severity for each\n"
+            "4. Primary patient safety implication\n"
+            "5. Recommended pharmacist actions"
+        ),
+        "GENERAL_CHAT": (
+            "You are Nova Guard — friendly, professional hospital pharmacist colleague. "
+            "Be helpful and concise. May engage in light context-appropriate small talk. "
+            "Always remain clinically focused. Never give direct patient advice."
+            "If you do not know the answer to a question, you must say so"
+        )
     }
 
-    # 2. Refined System Prompt
-    system_prompt = f"""
-    You are the Nova Guard Pharmacist Assistant, you primary role is to assist pharmacists with clinical decision support. 
-    Your name is Nova Guard.
-    ROLE: {intent_instructions.get(intent, "General Assistant")}
-    
-    PATIENT PROFILE: {profile if profile else 'Not selected'}
-    SAFETY VERDICT: {audit_verdict.status if audit_verdict else 'N/A'}
-    FDA DATA: {drug_info if drug_info else 'Not available'}
+    role_description = role_map.get(intent, role_map["GENERAL_CHAT"])
 
-    RULES:
-    - Use the 'FDA DATA' specifically for dosage and mechanism questions.
-    - Use the 'PATIENT PROFILE' for allergy and history questions.
-    - If suggesting an alternative, append: 'Substitution requires physician authorization.'
+    # ─── 3. Safe context string preparation ────────────────────────────────
+    def safe_json(obj, fallback="—"):
+        if obj is None:
+            return fallback
+        try:
+            return json.dumps(obj, indent=2, ensure_ascii=False)
+        except:
+            return str(obj)[:800] + "…" if len(str(obj)) > 800 else str(obj)
 
-    **CRITICAL:** Format the output using strict Markdown for readability, construct your reply professionally.
-    """
-
-    # 3. Message History Handling
-    history = state.get("messages", [])
-
-    response = await bedrock_client.chat(
-        system_prompt=system_prompt,
-        user_query=user_query,
-        history=history
+    patient_profile_str = safe_json(state.get("patient_profile"), "No patient profile selected")
+    verdict_str = (
+        state["verdict"].status
+        if state.get("verdict") and hasattr(state["verdict"], "status")
+        else state["verdict"].get("status", "N/A")
+        if isinstance(state.get("verdict"), dict)
+        else "N/A"
     )
-    
-    return {
-        "messages": [response], # LangGraph's add_messages handles the append
-        "prescription_text": None 
-    }
+    fda_data_str = safe_json(state.get("drug_info"), "No FDA data available")
 
+    current_input = (state.get("prescription_text") or "").strip()
+    if not current_input:
+        current_input = "(no new user message — continuing context)"
+
+    # ─── 4. Modern, stricter system prompt ─────────────────────────────────
+    system_prompt = f"""\
+You are **Nova Guard** — advanced clinical pharmacist decision support assistant.
+
+ROLE & TONE:
+{role_description}
+
+CURRENT CONTEXT:
+──────────────────────────────
+PATIENT PROFILE
+{patient_profile_str}
+
+SAFETY AUDIT VERDICT
+{verdict_str}
+
+FDA REFERENCE DATA (pharmacology / dosing / mechanism / indications ONLY)
+{fda_data_str}
+
+CURRENT QUESTION / INPUT
+──────────────────────────────
+{current_input}
+──────────────────────────────
+
+MANDATORY RULES — YOU MUST FOLLOW ALL:
+• Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
+• ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
+• Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
+• Use professional, precise, pharmacist-to-pharmacist language
+• Format EVERY answer using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
+• If Red/Yellow flags exist — mention them EARLY and clearly (never bury safety info)
+• When data is missing/insufficient → clearly state: "Information not available in current context"
+• NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
+• Answer only the current question — do not add unsolicited information
+• Think step-by-step before answering safety-sensitive questions
+
+Reply professionally, clearly and helpfully.
+"""
+
+    # ─── 5. History & LLM call ─────────────────────────────────────────────
+    history = state.get("messages", []) or []
+
+    try:
+        response = await bedrock_client.chat(
+            system_prompt=system_prompt,
+            user_query=current_input,
+            history=history,
+            # ← strongly recommended for clinical safety
+            # max_tokens=1600,        # ← adjust based on model & token budget
+            # top_p=0.9,
+        )
+    except Exception as exc:
+        error_preview = str(exc)[:140].replace("\n", " ")
+        response = {
+            "role": "assistant",
+            "content": (
+                "**System Notice**\n\n"
+                f"Temporary issue contacting clinical reasoning engine ({error_preview}).\n"
+                "Please try again in a moment or rephrase."
+            )
+        }
+
+    return {
+        "messages": [response],
+        "prescription_text": None,          # clear current input
+        # Optional debug helper (uncomment during development)
+        # "last_assistant_prompt": system_prompt,
+    }
 
 async def tools_node(state: PatientState) -> dict:
     """
@@ -605,42 +643,31 @@ async def openfda_node(state: PatientState) -> dict:
 
 
 def verdict_node(state: PatientState) -> dict:
-    """
-    Generate final safety verdict based on all flags.
-    
-    Verdict levels:
-    - GREEN: No safety concerns
-    - YELLOW: Minor warnings, proceed with caution
-    - RED: Critical issues, do NOT dispense
-    """
     from nova_guard.schemas.patient import SafetyVerdict
-    
-    print("⚖️ Generating safety verdict...")
-    
+
     flags = state.get("safety_flags", [])
-    
-    # Determine verdict status
-    has_critical = any(f.severity == "critical" for f in flags)
-    has_warning = any(f.severity == "warning" for f in flags)
-    
-    if has_critical:
+
+    critical = any(f.severity == "critical" for f in flags)
+    warning  = any(f.severity == "warning"  for f in flags)
+
+    if critical:
         status = "red"
-        recommendation = "DO NOT DISPENSE - Critical safety issues detected"
-    elif has_warning:
+        msg = "DO NOT DISPENSE — critical safety issue(s)"
+    elif warning:
         status = "yellow"
-        recommendation = "PROCEED WITH CAUTION - Review warnings with patient"
+        msg = "Proceed with caution — review warning(s)"
     else:
         status = "green"
-        recommendation = "SAFE TO DISPENSE - No safety concerns detected"
-    
+        msg = "No major safety concerns detected"
+
     verdict = SafetyVerdict(
         status=status,
         flags=flags,
-        recommendation=recommendation,
+        recommendation=msg,
         confidence_score=state.get("confidence_score", 0.0)
     )
-    
+
     return {
         "verdict": verdict,
-        "messages": [f"⚖️ Verdict: {status.upper()} - {recommendation}"]
+        "messages": [f"Verdict: **{status.upper()}** — {msg}"]
     }
