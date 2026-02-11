@@ -165,32 +165,83 @@ async def text_intake_node(state: PatientState) -> dict:
                 "messages": [f"🔍 Clinical query detected — drug: **{drug}**"]
             }
 
-    # ─── Classic prescription parsing fallback ──────────────────────────
-    # Keep your existing regex, but make it optional groups
-    pattern = r"(?P<drug>[A-Za-z][\w\-/ ]{2,})\s+(?P<dose>[\d.]+(?:\s*(?:mg|mcg|mg/ml|g|IU|%))?)?.*?(?P<freq>(?:once|twice|three times)?\s*(?:daily|every\s*\w+|q\w+d?))?.*$"
-    m = re.search(pattern, text, re.I)
+    # ─── Robust LLM Prescription Parsing ────────────────────────────────
+    # Regex is too brittle for conversational input like "he got this prescription..."
+    # We use LLM to extract structured data.
+    from nova_guard.services.bedrock import bedrock_client
+    import json
+    from nova_guard.schemas.patient import PrescriptionData
+    
+    extraction_prompt = """\
+    You are a pharmacy intake assistant. Extract ALL prescription details from the text.
+    Handle multiple drugs if present (e.g. "Lisinopril 10mg and Valsartan 80mg").
+    
+    Return a valid JSON object with a "prescriptions" key containing a list of objects:
+    {
+        "prescriptions": [
+            {
+                "drug_name": "Generic Name",
+                "dose": "10mg",
+                "frequency": "daily",
+                "notes": "indication or other details"
+            },
+            ...
+        ]
+    }
+    
+    Conversational text:
+    "{text}"
+    
+    JSON:
+    """
+    
+    try:
+        extracted_json_str = await bedrock_client.extract_entity(
+            text=text,
+            prompt=extraction_prompt
+        )
+        # Attempt to clean code blocks if present (Bedrock sometimes adds ```json ... ```)
+        cleaned_json = extracted_json_str.replace("```json", "").replace("```", "").strip()
+        data = json.loads(cleaned_json)
+        
+        prescriptions_list = []
+        if "prescriptions" in data and isinstance(data["prescriptions"], list):
+            for item in data["prescriptions"]:
+                if item.get("drug_name") and item["drug_name"].lower() != "none":
+                    prescriptions_list.append(PrescriptionData(
+                        drug_name=item["drug_name"],
+                        dose=item.get("dose") or "Unknown",
+                        frequency=item.get("frequency") or "Unknown",
+                        notes=item.get("notes") or "LLM extracted"
+                    ))
+        
+        # Fallback for single object return (if LLM ignores list instruction)
+        elif data.get("drug_name"):
+             prescriptions_list.append(PrescriptionData(
+                drug_name=data["drug_name"],
+                dose=data.get("dose") or "Unknown",
+                frequency=data.get("frequency") or "Unknown",
+                notes=data.get("notes") or "LLM extracted"
+            ))
 
-    if m and m.group("drug"):
-        drug = m.group("drug").strip()
-        dose = (m.group("dose") or "unknown").strip()
-        freq = (m.group("freq") or "unknown").strip()
+        if prescriptions_list:
+            # Populate both new list and robust backward compatibility
+            return {
+                "prescriptions": prescriptions_list,
+                "extracted_data": prescriptions_list[0], # Backward compat
+                "confidence_score": 0.90,
+                "messages": [f"Prescription extracted: {len(prescriptions_list)} drugs found ({', '.join(p.drug_name for p in prescriptions_list)})"]
+            }
 
-        return {
-            "extracted_data": PrescriptionData(
-                drug_name=drug,
-                dose=dose,
-                frequency=freq,
-                notes="Basic text parse"
-            ),
-            "confidence_score": 0.75 if dose != "unknown" else 0.55,
-            "messages": [f"Prescription parse: **{drug}** {dose} {freq}"]
-        }
-
-    # ultimate fallback
+    except Exception as e:
+        print(f"LLM extraction failed: {e}")
+    
+    # Ultimate fallback if LLM fails
     return {
+        "prescriptions": [],
         "extracted_data": None,
         "confidence_score": 0.40,
-        "messages": ["Treating input as general clinical question"]
+        "messages": ["Could not extract prescription details. Please rephrase."]
     }
 
 def voice_intake_node(state: PatientState) -> dict:
@@ -340,79 +391,112 @@ async def fetch_patient_node(state: PatientState) -> dict:
 
 async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     from nova_guard.services.openfda import openfda_client
+    from nova_guard.schemas.patient import PrescriptionData
 
-    drug_name = None
+    prescriptions = state.get("prescriptions", [])
+    
+    # Fallback: if no prescriptions parsed yet (e.g. direct Clinical Query), extract them now
+    if not prescriptions:
+        txt = state.get("prescription_text") or ""
+        if txt:
+            # Re-use the multi-drug extraction logic or a simplified version
+            from nova_guard.services.bedrock import bedrock_client
+            import json
+            try:
+                extraction_prompt = "Extract ALL generic drug names from this text as a JSON list of strings: {\"drugs\": [\"...\", \"...\"]}. Text: " + txt
+                extracted = await bedrock_client.extract_entity(text=txt, prompt=extraction_prompt)
+                data = json.loads(extracted.replace("```json", "").replace("```", "").strip())
+                for d in data.get("drugs", []):
+                    prescriptions.append(PrescriptionData(drug_name=d, dose="", frequency=""))
+            except Exception:
+                pass
 
-    if ed := state.get("extracted_data"):
-        drug_name = ed.drug_name
-    elif txt := state.get("prescription_text"):
-        from nova_guard.services.bedrock import bedrock_client
-        try:
-            drug_name = await bedrock_client.extract_entity(
-                text=txt,
-                prompt="Return only the primary generic drug name mentioned. Return NONE if no drug is found."
-            )
-            drug_name = drug_name.strip()
-            if drug_name.upper() == "NONE":
-                drug_name = None
-        except:
-            pass
+    if not prescriptions:
+         return {"messages": ["⚠️ No identifiable drugs for knowledge lookup"]}
 
-    if not drug_name:
-        return {"messages": ["⚠️ No identifiable drug name for knowledge lookup"]}
+    print(f"📖 Fetching FDA labels for: {[p.drug_name for p in prescriptions]}")
 
-    print(f"📖 Fetching FDA label: {drug_name}")
+    drug_info_map = {}
+    messages = []
+    
+    for prescription in prescriptions:
+        drug_name = prescription.drug_name
+        label = await openfda_client.get_drug_label(drug_name)
 
-    label = await openfda_client.get_drug_label(drug_name)
+        if not label:
+            messages.append(f"⚠️ No FDA label data found for **{drug_name}**")
+            continue
 
-    if not label:
-        return {"messages": [f"⚠️ No FDA label data found for **{drug_name}**"]}
+        refined = {
+            "drug_name": drug_name,
+            "indications": openfda_client._extract_field(label, "indications_and_usage") or "—",
+            "dosage": openfda_client._extract_field(label, "dosage_and_administration") or "—",
+            "contraindications": openfda_client._extract_field(label, "contraindications") or "—",
+            "boxed_warning": openfda_client._extract_field(label, "boxed_warning") or "None",
+            "warnings": openfda_client._extract_field(label, "warnings") or "—",
+            "interactions": openfda_client._extract_field(label, "drug_interactions") or "—",
+            "source_url": openfda_client._get_citation(label) or "—"
+        }
+        drug_info_map[drug_name] = refined
+        messages.append(f"FDA data retrieved for **{drug_name}**")
 
-    refined = {
-        "drug_name": drug_name,
-        "indications": openfda_client._extract_field(label, "indications_and_usage") or "—",
-        "dosage": openfda_client._extract_field(label, "dosage_and_administration") or "—",
-        "contraindications": openfda_client._extract_field(label, "contraindications") or "—",
-        "boxed_warning": openfda_client._extract_field(label, "boxed_warning") or "None",
-        "source_url": openfda_client._get_citation(label) or "—"
-    }
+    # Backward compatibility for single-drug nodes (if any)
+    first_drug_info = list(drug_info_map.values())[0] if drug_info_map else None
 
     return {
-        "drug_info": refined,
-        "messages": [f"FDA data retrieved for **{drug_name}**"]
+        "drug_info_map": drug_info_map,
+        "drug_info": first_drug_info, # Backward compat
+        "messages": messages,
+        # Ensure prescriptions is updated in state if we acted as fallback
+        "prescriptions": prescriptions 
     }
 
 def auditor_node(state: PatientState) -> dict:
     from nova_guard.schemas.patient import SafetyFlag
 
     flags = []
-    extracted = state.get("extracted_data")
+    prescriptions = state.get("prescriptions", [])
     profile = state.get("patient_profile", {})
 
-    if not extracted or not profile:
+    if not prescriptions or not profile:
         return {"safety_flags": flags}
 
-    drug = extracted.drug_name.lower()
+    current_drugs = [d["drug_name"].lower() for d in profile.get("current_drugs", [])]
+    
+    # Check each new prescription
+    for i, rx in enumerate(prescriptions):
+        drug_name = rx.drug_name.lower()
+        
+        # 1. Prior Adverse Reaction Check
+        for reaction in profile.get("adverse_reactions", []):
+            if drug_name in reaction.get("drug_name", "").lower():
+                flags.append(SafetyFlag(
+                    severity="warning",
+                    category="prior_adverse_reaction",
+                    message=f"Prior {reaction['severity']} reaction to {reaction['drug_name']}: {reaction['symptoms']}",
+                    source="Patient history"
+                ))
 
-    # Existing adverse reaction check
-    for rx in profile.get("adverse_reactions", []):
-        if drug in rx.get("drug_name", "").lower():
+        # 2. Duplicate Therapy (vs Current Meds)
+        if drug_name in current_drugs:
             flags.append(SafetyFlag(
                 severity="warning",
-                category="prior_adverse_reaction",
-                message=f"Prior {rx['severity']} reaction to {rx['drug_name']}: {rx['symptoms']}",
-                source="Patient history"
+                category="therapeutic_duplication",
+                message=f"Patient already taking **{rx.drug_name}**",
+                source="Current medication list"
             ))
-
-    # Simple duplicate therapy check (phase 1 version)
-    current_drugs = [d["drug_name"].lower() for d in profile.get("current_drugs", [])]
-    if drug in current_drugs:
-        flags.append(SafetyFlag(
-            severity="warning",
-            category="therapeutic_duplication",
-            message=f"Patient already taking **{drug.title()}**",
-            source="Current medication list"
-        ))
+            
+        # 3. Duplicate Therapy (vs Other New Prescriptions)
+        for j, other_rx in enumerate(prescriptions):
+            if i != j and drug_name == other_rx.drug_name.lower():
+                # Avoid duplicate flags for the same pair (only flag once)
+                if i < j: 
+                    flags.append(SafetyFlag(
+                        severity="warning",
+                        category="duplicate_therapy",
+                        message=f"Duplicate prescription in current request: **{rx.drug_name}** appears multiple times.",
+                        source="Current Request"
+                    ))
 
     return {
         "safety_flags": flags,
@@ -435,6 +519,7 @@ async def assistant_node(state: PatientState) -> dict:
         "MEDICAL_KNOWLEDGE": (
             "Act as evidence-based clinical pharmacist. "
             "Answer strictly using provided FDA reference data only. "
+            "If multiple drugs are involved, structure the answer clearly for EACH drug. "
             "Include: mechanism of action, approved indications, "
             "standard dosing & key adjustments (renal/hepatic/elderly), "
             "black box warnings (quote if present), major contraindications, "
@@ -443,9 +528,9 @@ async def assistant_node(state: PatientState) -> dict:
         ),
         "CLINICAL_QUERY": (
             "Act as high-reliability patient-safety clinical decision support. "
-            "Cross-reference allergies / ADRs / comorbidities / organ function / "
-            "age / pregnancy status against proposed medication(s). "
-            "Clearly highlight: allergy/cross-reactivity risk, serious DDIs, "
+            "Cross-reference ALL extracted drugs against allergies / ADRs / comorbidities / organ function / "
+            "age / pregnancy status. "
+            "Clearly highlight: allergy/cross-reactivity risk, serious DDIs (Drug-Drug Interactions), "
             "duplicate therapy, required dose adjustments, critical monitoring. "
             "Use cautious, factual, non-alarmist tone."
         ),
@@ -453,10 +538,11 @@ async def assistant_node(state: PatientState) -> dict:
             "Explain automated prescription safety audit results to pharmacist. "
             "Structure answer:\n"
             "1. Overall verdict (Red/Yellow/Green)\n"
-            "2. Which rules/flags triggered\n"
-            "3. Clinical rationale & severity for each\n"
-            "4. Primary patient safety implication\n"
-            "5. Recommended pharmacist actions"
+            "2. Triggered Rules/Flags (Grouped by Drug if applicable)\n"
+            "3. Drug-Drug Interactions (if any)\n"
+            "4. Clinical rationale & severity for each finding\n"
+            "5. Primary patient safety implication\n"
+            "6. Recommended pharmacist actions"
         ),
         "GENERAL_CHAT": (
             "You are Nova Guard — friendly, professional hospital pharmacist colleague. "
@@ -473,19 +559,28 @@ async def assistant_node(state: PatientState) -> dict:
         if obj is None:
             return fallback
         try:
-            return json.dumps(obj, indent=2, ensure_ascii=False)
+            return json.dumps(obj, indent=2, ensure_ascii=False, default=str)
         except:
             return str(obj)[:800] + "…" if len(str(obj)) > 800 else str(obj)
 
     patient_profile_str = safe_json(state.get("patient_profile"), "No patient profile selected")
-    verdict_str = (
-        state["verdict"].status
-        if state.get("verdict") and hasattr(state["verdict"], "status")
-        else state["verdict"].get("status", "N/A")
-        if isinstance(state.get("verdict"), dict)
-        else "N/A"
-    )
-    fda_data_str = safe_json(state.get("drug_info"), "No FDA data available")
+    verdict_str = safe_json(state.get("verdict"), "No verdict available")
+    
+    # Use drug_info_map for multi-drug context
+    drug_info_map = state.get("drug_info_map")
+    # Fallback to single drug info if map is missing (backward compat)
+    if not drug_info_map and state.get("drug_info"):
+        drug_info_map = {"Primary Drug": state.get("drug_info")}
+        
+    fda_data_str = safe_json(drug_info_map, "No FDA data available")
+
+    # Pass the structured prescriptions list
+    prescriptions = state.get("prescriptions", [])
+    # Fallback to single extracted data
+    if not prescriptions and state.get("extracted_data"):
+        prescriptions = [state.get("extracted_data")]
+        
+    prescriptions_str = safe_json(prescriptions, "No structured prescription data found")
 
     current_input = (state.get("prescription_text") or "").strip()
     if not current_input:
@@ -502,6 +597,9 @@ async def assistant_node(state: PatientState) -> dict:
         ──────────────────────────────
         PATIENT PROFILE
         {patient_profile_str}
+        
+        EXTRACTED PRESCRIPTIONS
+        {prescriptions_str}
 
         SAFETY AUDIT VERDICT
         {verdict_str}
@@ -517,6 +615,7 @@ async def assistant_node(state: PatientState) -> dict:
         MANDATORY RULES — YOU MUST FOLLOW ALL:
         • Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
         • ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
+        • CHECK FOR DRUG-DRUG INTERACTIONS between all prescribed drugs (using generic names from FDA data)
         • Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
         • Use professional, precise, pharmacist-to-pharmacist language
         • Format EVERY answer using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
@@ -598,41 +697,38 @@ async def tools_node(state: PatientState) -> dict:
 
 async def openfda_node(state: PatientState) -> dict:
     """
-    Run comprehensive safety checks via OpenFDA.
-    
-    16+ checks including:
-    - Boxed Warnings
-    - Contraindications
-    - Drug Interactions
-    - Pregnancy/Nursing Safety
-    - Pediatric/Geriatric Use
+    Run comprehensive safety checks via OpenFDA for ALL prescriptions.
     """
     from nova_guard.services.openfda import openfda_client
     
     print("💊 Running OpenFDA safety checks...")
     
-    extracted = state.get("extracted_data")
+    prescriptions = state.get("prescriptions", [])
     profile = state.get("patient_profile")
     
-    if not extracted or not profile:
+    if not prescriptions or not profile:
         return {
             "safety_flags": [],
             "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
         }
     
-    # Run all checks
-    flags = await openfda_client.run_all_checks(
-        drug_name=extracted.drug_name,
-        patient_profile=profile
-    )
+    all_new_flags = []
+    
+    # Run checks for EACH drug
+    for rx in prescriptions:
+        flags = await openfda_client.run_all_checks(
+            drug_name=rx.drug_name,
+            patient_profile=profile
+        )
+        all_new_flags.extend(flags)
     
     # Combine with existing flags (from auditor node)
     existing_flags = state.get("safety_flags", [])
-    all_flags = existing_flags + flags
+    combined_flags = existing_flags + all_new_flags
     
     return {
-        "safety_flags": all_flags,
-        "messages": [f"✅ OpenFDA checks complete: Found {len(flags)} new flag(s)"]
+        "safety_flags": combined_flags,
+        "messages": [f"✅ OpenFDA checks complete: Found {len(all_new_flags)} new flag(s) across {len(prescriptions)} drugs"]
     }
 
 

@@ -128,7 +128,7 @@ def create_prescription_workflow():
     # 5. Audit Loop
     workflow.add_edge("auditor", "openfda")
     workflow.add_edge("openfda", "verdict")
-    workflow.add_edge("verdict", END) 
+    workflow.add_edge("verdict", "assistant_node") 
     
     # 6. Assistant & Tools completion
     workflow.add_edge("fetch_medical_knowledge", "assistant_node")
