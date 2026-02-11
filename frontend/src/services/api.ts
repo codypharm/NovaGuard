@@ -7,6 +7,10 @@ export interface Patient {
   medical_record_number?: string
   weight?: string
   height?: string
+  age_years?: number
+  is_pregnant?: boolean
+  is_nursing?: boolean
+  egfr?: number
   allergies: Allergy[]
   medical_history?: Condition[]
 }

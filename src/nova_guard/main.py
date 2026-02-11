@@ -187,7 +187,7 @@ async def process_clinical_interaction(
     Handles images, text prescriptions, and assistant follow-ups.
     """
     from nova_guard.graph.workflow import prescription_workflow
-    
+    print("patien id:", patient_id)
     # 1. Prepare Input Data
     image_bytes = await file.read() if file else None
     
@@ -201,7 +201,7 @@ async def process_clinical_interaction(
     }
     
     # 3. Execution Config (Threaded by Patient ID for persistence)
-    config = {"configurable": {"thread_id": f"session-{1}"}}
+    config = {"configurable": {"thread_id": f"session-{patient_id}"}}
     
     try:
         # Initial invocation triggers the Gateway Supervisor

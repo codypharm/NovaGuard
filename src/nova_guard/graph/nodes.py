@@ -26,7 +26,7 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
         Classify the input into **exactly one** of these categories:
 
         AUDIT          - processing a new prescription (image, typed Rx, voice dictation)
-        CLINICAL_QUERY - question about this specific patient (allergies, interactions, history…)
+        CLINICAL_QUERY - question about this specific patient based on mrn number or name 
         MEDICAL_KNOWLEDGE - general pharmacology / drug information question
         SYSTEM_ACTION  - user requests an action (open source, generate report, etc.)
         GENERAL_CHAT   - greeting, thanks, meta conversation, off-topic
@@ -244,11 +244,8 @@ def route_input(state: PatientState) -> str:
     
     # Path for Chat / Questions
     if intent == "CLINICAL_QUERY":
-        # If we have text, parse it for drug names first (even if just a query)
-        if state.get("prescription_text"):
-            return "text_intake"
-        print("No text provided, fetching patient")
-        return "fetch_patient" # Always fetch patient context for history questions
+        return "fetch_patient"
+         
 
     if intent == "MEDICAL_KNOWLEDGE":
         return "fetch_medical_knowledge"

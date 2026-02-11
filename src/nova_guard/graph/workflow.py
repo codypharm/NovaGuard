@@ -142,8 +142,7 @@ def create_prescription_workflow():
     checkpointer = MemorySaver()
     
     app = workflow.compile(
-        checkpointer=checkpointer,
-        interrupt_before=["fetch_patient"]  # HITL: Pharmacist verifies extraction before audit
+        checkpointer=checkpointer
     )
     
     return app

@@ -65,7 +65,12 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         const newPatient = await createPatient({
             name: formData.name,
             date_of_birth: formData.date_of_birth,
-            medical_record_number: formData.medical_record_number
+            medical_record_number: formData.medical_record_number,
+            weight: formData.weight,
+            height: formData.height,
+            egfr: formData.egfr ? Number(formData.egfr) : undefined,
+            is_pregnant: formData.is_pregnant || false,
+            is_nursing: formData.is_nursing || false
         })
 
         // Add Allergies if any
@@ -106,7 +111,12 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                 <div>
                     <h2 className="font-bold text-slate-900 text-lg">{initialPatient.name}</h2>
                     <p className="text-sm text-slate-500">MRN: {initialPatient.medical_record_number}</p>
-                    <p className="text-xs font-mono bg-slate-100 px-2 py-1 rounded inline-block mt-1">{age} years old</p>
+                    <p className="text-xs font-mono bg-slate-100 px-2 py-1 rounded inline-block mt-1">
+                        {age} years old
+                        {initialPatient.is_pregnant && <span className="ml-2 text-pink-600 font-semibold">• Pregnant</span>}
+                        {initialPatient.is_nursing && <span className="ml-2 text-purple-600 font-semibold">• Nursing</span>}
+                        {initialPatient.egfr && <span className="ml-2 text-slate-600">• eGFR: {initialPatient.egfr}</span>}
+                    </p>
                 </div>
             </div>
             
@@ -177,7 +187,14 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         </div>
 
         <div className="space-y-2">
-            <Label htmlFor="dob">Date of Birth</Label>
+            <Label htmlFor="dob">
+                Date of Birth 
+                {formData.date_of_birth && (
+                    <span className="ml-2 text-xs text-slate-500 font-normal">
+                        ({new Date().getFullYear() - new Date(formData.date_of_birth).getFullYear()} years old)
+                    </span>
+                )}
+            </Label>
             <Input 
                 id="dob" 
                 type="date"
@@ -205,6 +222,43 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     value={formData.height || ""}
                     onChange={e => setFormData({...formData, height: e.target.value})}
                 />
+            </div>
+        </div>
+
+        {/* Clinical Status */}
+        <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+                <Label htmlFor="egfr">eGFR (mL/min)</Label>
+                <Input 
+                    id="egfr" 
+                    type="number"
+                    placeholder="e.g. 90"
+                    value={formData.egfr || ""}
+                    onChange={e => setFormData({...formData, egfr: e.target.value ? Number(e.target.value) : undefined})}
+                />
+            </div>
+            
+            <div className="flex flex-col justify-end space-y-3 pb-2">
+                <div className="flex items-center space-x-2">
+                    <input
+                        type="checkbox"
+                        id="is_pregnant"
+                        checked={formData.is_pregnant || false}
+                        onChange={e => setFormData({...formData, is_pregnant: e.target.checked})}
+                        className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <Label htmlFor="is_pregnant" className="font-normal cursor-pointer">Patient is Pregnant</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <input
+                        type="checkbox"
+                        id="is_nursing"
+                        checked={formData.is_nursing || false}
+                        onChange={e => setFormData({...formData, is_nursing: e.target.checked})}
+                        className="h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                    />
+                    <Label htmlFor="is_nursing" className="font-normal cursor-pointer">Patient is Nursing</Label>
+                </div>
             </div>
         </div>
 
