@@ -17,9 +17,9 @@ async def get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
     return result.scalar_one_or_none()
 
 
-async def create_session(db: AsyncSession, session_id: str, title: str = "New Session") -> Session:
-    """Create a new session."""
-    session = Session(id=session_id, title=title)
+async def create_session(db: AsyncSession, session_id: str, user_id: str, title: str = "New Session") -> Session:
+    """Create a new session linked to a user."""
+    session = Session(id=session_id, user_id=user_id, title=title)
     db.add(session)
     await db.flush()
     await db.refresh(session)
@@ -29,6 +29,7 @@ async def create_session(db: AsyncSession, session_id: str, title: str = "New Se
 async def update_session_patient(
     db: AsyncSession, 
     session_id: str, 
+    user_id: str,
     patient_id: Optional[int], 
     preview_text: Optional[str] = None
 ) -> Optional[Session]:
@@ -36,7 +37,11 @@ async def update_session_patient(
     session = await get_session(db, session_id)
     if not session:
         # If session doesn't exist (e.g. started chat without patient), create it now
-        session = await create_session(db, session_id)
+        session = await create_session(db, session_id, user_id)
+    
+    # Verify ownership
+    if session.user_id != user_id:
+        return None # Unauthorized
     
     # 1. If patient provided, link and set formal title
     if patient_id:
@@ -67,10 +72,11 @@ async def update_session_patient(
     return session
 
 
-async def list_recent_sessions(db: AsyncSession, limit: int = 20) -> List[Session]:
-    """List recent sessions for sidebar."""
+async def list_recent_sessions(db: AsyncSession, user_id: str, limit: int = 20) -> List[Session]:
+    """List recent sessions for a specific user."""
     result = await db.execute(
         select(Session)
+        .where(Session.user_id == user_id)
         .order_by(desc(Session.updated_at))
         .limit(limit)
         .options(
@@ -80,10 +86,10 @@ async def list_recent_sessions(db: AsyncSession, limit: int = 20) -> List[Sessio
         )
     )
     return list(result.scalars().all())
-async def delete_session(db: AsyncSession, session_id: str) -> bool:
+async def delete_session(db: AsyncSession, session_id: str, user_id: str) -> bool:
     """Delete a session and its associated history."""
     # 1. Delete from sessions table
-    result = await db.execute(select(Session).where(Session.id == session_id))
+    result = await db.execute(select(Session).where(Session.id == session_id, Session.user_id == user_id))
     session = result.scalar_one_or_none()
     
     if session:

@@ -1,5 +1,22 @@
 const API_URL = "http://localhost:8000"
 
+let getToken: (() => Promise<string | null>) | null = null;
+
+export function setTokenProvider(provider: () => Promise<string | null>) {
+    getToken = provider;
+}
+
+async function getAuthHeaders(): Promise<HeadersInit> {
+    const headers: HeadersInit = {};
+    if (getToken) {
+        const token = await getToken();
+        if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+        }
+    }
+    return headers;
+}
+
 export interface Patient {
   id: number
   name: string
@@ -38,7 +55,8 @@ export interface ProcessResponse {
 }
 
 export async function getPatient(id: number): Promise<Patient> {
-  const res = await fetch(`${API_URL}/patients/${id}`)
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/patients/${id}`, { headers })
   if (!res.ok) throw new Error("Failed to fetch patient")
   return res.json()
 }
@@ -56,8 +74,20 @@ export async function processClinicalInteraction(
     if (text) formData.append("prescription_text", text)
     if (file) formData.append("file", file)
 
+    const headers = await getAuthHeaders();
+    // FormData doesn't need Content-Type header (browser sets it)
+    // But we need to spread existing headers if we were using a simple dict, 
+    // however HeadersInit type + FormData is tricky if we manually set Content-Type.
+    // For Authorization we just add it.
+    
+    // We need to pass the headers object but fetch expects HeadersInit.
+    // We can't easily spread headers into the options if it's not already an object.
+    
+    const reqHeaders: any = await getAuthHeaders();
+
     const res = await fetch(`${API_URL}/clinical-interaction/process`, {
         method: "POST",
+        headers: reqHeaders,
         body: formData
     })
     
@@ -70,9 +100,12 @@ export async function processClinicalInteraction(
 }
 
 export async function createPatient(data: Partial<Patient>): Promise<Patient> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+
     const res = await fetch(`${API_URL}/patients`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify(data)
     })
     if (!res.ok) throw new Error("Failed to create patient")
@@ -80,9 +113,12 @@ export async function createPatient(data: Partial<Patient>): Promise<Patient> {
 }
 
 export async function updatePatient(id: number, data: Partial<Patient>): Promise<Patient> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+
     const res = await fetch(`${API_URL}/patients/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify(data)
     })
     if (!res.ok) throw new Error("Failed to update patient")
@@ -90,9 +126,12 @@ export async function updatePatient(id: number, data: Partial<Patient>): Promise
 }
 
 export async function addAllergy(patientId: number, allergen: string): Promise<void> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+
     await fetch(`${API_URL}/patients/${patientId}/allergies`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: headers,
         body: JSON.stringify({
             patient_id: patientId,
             allergen: allergen,
@@ -103,7 +142,8 @@ export async function addAllergy(patientId: number, allergen: string): Promise<v
 }
 
 export async function getPatientByMRN(mrn: string): Promise<Patient | null> {
-    const res = await fetch(`${API_URL}/patients/lookup/${mrn}`)
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/patients/lookup/${mrn}`, { headers })
     if (res.status === 404) return null
     if (!res.ok) throw new Error("Failed to lookup patient")
     return res.json()
@@ -117,7 +157,8 @@ export interface Session {
 }
 
 export async function getSessions(limit: number = 20): Promise<Session[]> {
-    const res = await fetch(`${API_URL}/sessions?limit=${limit}`)
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/sessions?limit=${limit}`, { headers })
     if (!res.ok) throw new Error("Failed to fetch sessions")
     return res.json()
 }
@@ -126,8 +167,10 @@ export async function createSession(sessionId: string): Promise<void> {
     const formData = new FormData()
     formData.append("session_id", sessionId)
     
+    const headers = await getAuthHeaders();
     const res = await fetch(`${API_URL}/sessions`, {
         method: "POST",
+        headers: headers,
         body: formData
     })
     
@@ -135,8 +178,10 @@ export async function createSession(sessionId: string): Promise<void> {
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
+    const headers = await getAuthHeaders();
     const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: headers
     })
     
     if (!res.ok) throw new Error("Failed to delete session")
@@ -150,7 +195,8 @@ export interface ChatMessage {
 }
 
 export async function getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
-    const res = await fetch(`${API_URL}/sessions/${sessionId}/history`)
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/sessions/${sessionId}/history`, { headers })
     if (!res.ok) return []
     return res.json()
 }

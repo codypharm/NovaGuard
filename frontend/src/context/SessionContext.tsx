@@ -7,7 +7,7 @@ interface SessionContextType {
     sessionsHistory: Session[]
     loading: boolean
     createNewSession: () => Promise<string>
-    refreshSessions: () => Promise<void>
+    refreshSessions: () => Promise<Session[]>
     switchSession: (id: string) => void
     deleteSession: (id: string) => Promise<void>
 }
@@ -22,7 +22,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // Initial Load
     useEffect(() => {
         const init = async () => {
-             await refreshSessions()
+             const sessions = await refreshSessions() || []
              
              // Check URL first
              const params = new URLSearchParams(window.location.search)
@@ -32,16 +32,24 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
              if (!id) {
                  id = localStorage.getItem("nova_session_id")
              }
+
+             // Validate ID against user's session list
+             // If the ID from localStorage isn't in the user's list, it might be stale or belong to another user.
+             // We default to the most recent session, or create a new one.
+             const isValid = id && sessions.some(s => s.id === id)
              
-             // Create new if strictly necessary (or just let user pick from list?)
-             // Behavior: If no ID found, generate one immediately so we have a session to start.
-             if (!id) {
-                 id = uuidv4()
+             if (!isValid) {
+                 if (sessions.length > 0) {
+                     // Switch to most recent
+                     id = sessions[0].id
+                 } else {
+                     // No sessions exist, create new
+                     id = uuidv4()
+                 }
              }
              
              // Set state
-             switchSession(id, false) // false = don't double fetch history yet, SafetyChat will do it? 
-             // Actually, SafetyChat depends on sessionId changing.
+             if (id) switchSession(id, false)
         }
         init()
     }, [])
@@ -51,8 +59,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             setLoading(true)
             const data = await getSessions()
             setSessionsHistory(data)
+            return data
         } catch (err) {
             console.error("Failed to load sessions", err)
+            return []
         } finally {
             setLoading(false)
         }

@@ -9,6 +9,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from nova_guard.database import Base
 
+if False: # TYPE_CHECKING
+    from nova_guard.models.user import User
+    from nova_guard.models.session import Session
+
 
 class AllergyType(str, Enum):
     """Types of allergies."""
@@ -33,6 +37,7 @@ class Patient(Base):
     __tablename__ = "patients"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
     name: Mapped[str] = mapped_column(String(255))
     date_of_birth: Mapped[date] = mapped_column(Date)
     medical_record_number: Mapped[Optional[str]] = mapped_column(String(100), unique=True)
@@ -60,9 +65,11 @@ class Patient(Base):
     adverse_reactions: Mapped[list["AdverseReaction"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list["Session"]] = mapped_column(ForeignKey("sessions.id"), nullable=True) # REMOVE THIS LINE IF IT WAS WRONG, relationships shouldn't be mapped_column
     sessions: Mapped[list["Session"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
+    user: Mapped["User"] = relationship(back_populates="patients")
 
 
 class DrugHistory(Base):

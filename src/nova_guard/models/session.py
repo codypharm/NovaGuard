@@ -6,6 +6,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from nova_guard.database import Base
 
+if False:
+    from nova_guard.models.patient import Patient
+    from nova_guard.models.user import User
+
 class Session(Base):
     """
     Represents a conversational session.
@@ -15,6 +19,7 @@ class Session(Base):
     __tablename__ = "sessions"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)  # UUID string
+    user_id: Mapped[Optional[str]] = mapped_column(ForeignKey("users.id"))
     title: Mapped[Optional[str]] = mapped_column(String(255), default="New Session")
     
     patient_id: Mapped[Optional[int]] = mapped_column(ForeignKey("patients.id"), nullable=True)
@@ -26,3 +31,4 @@ class Session(Base):
 
     # Relationships
     patient: Mapped[Optional["Patient"]] = relationship(back_populates="sessions")
+    user: Mapped["User"] = relationship(back_populates="sessions")

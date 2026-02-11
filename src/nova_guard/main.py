@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from nova_guard.database import get_db
 from nova_guard.api import patients as patient_crud
 from nova_guard.api import sessions as session_crud
+from nova_guard.api.auth import get_current_user
+from nova_guard.models.user import User
 from nova_guard.schemas.patient import (
     PatientCreate,
     PatientResponse,
@@ -240,6 +242,9 @@ async def process_clinical_interaction(
     session_id: str = Form(...),
     file: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
+    # For Form data, we need to extract the token manually or use a workaround as Depends headers don't strictly mix well with Form
+    # However, FastAPI handles Bearer token in headers fine even with Form data.
+    current_user: User = Depends(get_current_user), 
     request: Request = None,  # Added to access app.state
 ):
     """
@@ -268,12 +273,16 @@ async def process_clinical_interaction(
     # Ensure session exists and link to patient if provided OR update title with content
     preview_text = prescription_text or ("Image Uploaded" if file else "New Session")
     
-    await session_crud.update_session_patient(
+    session = await session_crud.update_session_patient(
         db, 
         session_id, 
+        current_user.id,
         patient_id, 
         preview_text=preview_text
     )
+    
+    if not session:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     # 4. Execution Config
     config = {"configurable": {"thread_id": session_id}}
@@ -323,10 +332,12 @@ async def process_clinical_interaction(
 async def list_recent_sessions(
     limit: int = 20,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """List recent sessions for sidebar."""
     print(f"GET /sessions limit={limit}")
-    sessions = await session_crud.list_recent_sessions(db, limit=limit)
+    print(f"GET /sessions limit={limit} user={current_user.id}")
+    sessions = await session_crud.list_recent_sessions(db, current_user.id, limit=limit)
     print(f"Found {len(sessions)} sessions")
     return sessions
 
@@ -335,18 +346,20 @@ async def list_recent_sessions(
 async def create_session(
     session_id: str = Form(...),
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Create or initialize a session."""
-    return await session_crud.update_session_patient(db, session_id, None)
+    return await session_crud.update_session_patient(db, session_id, current_user.id, None)
 
 
 @app.delete("/sessions/{session_id}", status_code=204)
 async def delete_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a session."""
-    deleted = await session_crud.delete_session(db, session_id)
+    deleted = await session_crud.delete_session(db, session_id, current_user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     return None
@@ -379,8 +392,15 @@ async def natural_language_query(
 async def get_session_history(
     session_id: str,
     request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Retrieve chat history for a session."""
+    # Verify ownership
+    session = await session_crud.get_session(db, session_id)
+    if session and session.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+        
     workflow = request.app.state.prescription_workflow
     config = {"configurable": {"thread_id": session_id}}
     

@@ -11,7 +11,9 @@ from alembic import context
 
 # Import the Base and all models
 from nova_guard.database import Base
+from nova_guard.models.user import User
 from nova_guard.models.patient import Patient, DrugHistory, AllergyRegistry, AdverseReaction
+from nova_guard.models.session import Session
 from nova_guard.config import settings
 
 # Alembic Config object
