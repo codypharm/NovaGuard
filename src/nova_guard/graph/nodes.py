@@ -21,21 +21,21 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
     has_voice = state.get("prescription_audio") is not None  # currently unused
 
     classification_prompt = """\
-You are a precise medical intent classifier for a pharmacist decision-support system.
+        You are a precise medical intent classifier for a pharmacist decision-support system.
 
-Classify the input into **exactly one** of these categories:
+        Classify the input into **exactly one** of these categories:
 
-AUDIT          - processing a new prescription (image, typed Rx, voice dictation)
-CLINICAL_QUERY - question about this specific patient (allergies, interactions, history…)
-MEDICAL_KNOWLEDGE - general pharmacology / drug information question
-SYSTEM_ACTION  - user requests an action (open source, generate report, etc.)
-GENERAL_CHAT   - greeting, thanks, meta conversation, off-topic
+        AUDIT          - processing a new prescription (image, typed Rx, voice dictation)
+        CLINICAL_QUERY - question about this specific patient (allergies, interactions, history…)
+        MEDICAL_KNOWLEDGE - general pharmacology / drug information question
+        SYSTEM_ACTION  - user requests an action (open source, generate report, etc.)
+        GENERAL_CHAT   - greeting, thanks, meta conversation, off-topic
 
-Rules:
-- Return **only** the category name — nothing else
-- Prefer AUDIT when prescription-like content is present (dose, frequency, sig, etc.)
-- Prefer CLINICAL_QUERY when patient-specific context is mentioned
-"""
+        Rules:
+        - Return **only** the category name — nothing else
+        - Prefer AUDIT when prescription-like content is present (dose, frequency, sig, etc.)
+        - Prefer CLINICAL_QUERY when patient-specific context is mentioned
+        """
 
     raw_intent = await bedrock_client.classify_intent(
         text=text,
@@ -496,41 +496,41 @@ async def assistant_node(state: PatientState) -> dict:
 
     # ─── 4. Modern, stricter system prompt ─────────────────────────────────
     system_prompt = f"""\
-You are **Nova Guard** — advanced clinical pharmacist decision support assistant.
+        You are **Nova Guard** — advanced clinical pharmacist decision support assistant.
 
-ROLE & TONE:
-{role_description}
+        ROLE & TONE:
+        {role_description}
 
-CURRENT CONTEXT:
-──────────────────────────────
-PATIENT PROFILE
-{patient_profile_str}
+        CURRENT CONTEXT:
+        ──────────────────────────────
+        PATIENT PROFILE
+        {patient_profile_str}
 
-SAFETY AUDIT VERDICT
-{verdict_str}
+        SAFETY AUDIT VERDICT
+        {verdict_str}
 
-FDA REFERENCE DATA (pharmacology / dosing / mechanism / indications ONLY)
-{fda_data_str}
+        FDA REFERENCE DATA (pharmacology / dosing / mechanism / indications ONLY)
+        {fda_data_str}
 
-CURRENT QUESTION / INPUT
-──────────────────────────────
-{current_input}
-──────────────────────────────
+        CURRENT QUESTION / INPUT
+        ──────────────────────────────
+        {current_input}
+        ──────────────────────────────
 
-MANDATORY RULES — YOU MUST FOLLOW ALL:
-• Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
-• ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
-• Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
-• Use professional, precise, pharmacist-to-pharmacist language
-• Format EVERY answer using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
-• If Red/Yellow flags exist — mention them EARLY and clearly (never bury safety info)
-• When data is missing/insufficient → clearly state: "Information not available in current context"
-• NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
-• Answer only the current question — do not add unsolicited information
-• Think step-by-step before answering safety-sensitive questions
+        MANDATORY RULES — YOU MUST FOLLOW ALL:
+        • Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
+        • ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
+        • Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
+        • Use professional, precise, pharmacist-to-pharmacist language
+        • Format EVERY answer using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
+        • If Red/Yellow flags exist — mention them EARLY and clearly (never bury safety info)
+        • When data is missing/insufficient → clearly state: "Information not available in current context"
+        • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
+        • Answer only the current question — do not add unsolicited information
+        • Think step-by-step before answering safety-sensitive questions
 
-Reply professionally, clearly and helpfully.
-"""
+        Reply professionally, clearly and helpfully.
+        """
 
     # ─── 5. History & LLM call ─────────────────────────────────────────────
     history = state.get("messages", []) or []
@@ -540,9 +540,6 @@ Reply professionally, clearly and helpfully.
             system_prompt=system_prompt,
             user_query=current_input,
             history=history,
-            # ← strongly recommended for clinical safety
-            # max_tokens=1600,        # ← adjust based on model & token budget
-            # top_p=0.9,
         )
     except Exception as exc:
         error_preview = str(exc)[:140].replace("\n", " ")
