@@ -5,6 +5,9 @@ import { Send, User as UserIcon, Bot, Paperclip, X, Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
 
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
 interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -37,7 +40,11 @@ export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse
         id: `assistant-${Date.now()}`,
         role: 'assistant',
         timestamp: new Date(),
-        content: <p>{assistantResponse}</p>
+        content: (
+          <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{assistantResponse}</ReactMarkdown>
+          </div>
+        )
       }
       setMessages(prev => [...prev, assistantMsg])
       onResponseShown() // Clear the prop so we don't re-add it

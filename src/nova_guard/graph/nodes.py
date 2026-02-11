@@ -485,7 +485,7 @@ async def assistant_node(state: PatientState) -> dict:
 
     # 1. Dynamic Instruction Set based on Intent
     intent_instructions = {
-        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications, key mechanisms, and black-box warnings. Assume the user is a pharmacist requiring professional depth. **CRITICAL:** Format the output using strict Markdown (## Headers, - Bullet points) for readability.",
+        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications, key mechanisms, and black-box warnings. Assume the user is a pharmacist requiring professional depth. ",
         "CLINICAL_QUERY": "Focus on the intersection of the patient's history and the current meds. Be extremely cautious about allergy and interaction risks.",
         "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status.",
         "GENERAL_CHAT": "Be friendly, professional, and helpful. Maintain a Pharmacist assistant persona but feel free to engage in small talk with the pharmacist."
@@ -505,6 +505,8 @@ async def assistant_node(state: PatientState) -> dict:
     - Use the 'FDA DATA' specifically for dosage and mechanism questions.
     - Use the 'PATIENT PROFILE' for allergy and history questions.
     - If suggesting an alternative, append: 'Substitution requires physician authorization.'
+
+    **CRITICAL:** Format the output using strict Markdown for readability, construct your reply professionally.
     """
 
     # 3. Message History Handling
