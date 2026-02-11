@@ -73,6 +73,16 @@ export async function createPatient(data: Partial<Patient>): Promise<Patient> {
     return res.json()
 }
 
+export async function updatePatient(id: number, data: Partial<Patient>): Promise<Patient> {
+    const res = await fetch(`${API_URL}/patients/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Failed to update patient")
+    return res.json()
+}
+
 export async function addAllergy(patientId: number, allergen: string): Promise<void> {
     await fetch(`${API_URL}/patients/${patientId}/allergies`, {
         method: "POST",

@@ -71,6 +71,19 @@ async def create_patient(
     return await patient_crud.create_patient(db, patient)
 
 
+@app.put("/patients/{patient_id}", response_model=PatientResponse)
+async def update_patient(
+    patient_id: int,
+    patient: PatientCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Update an existing patient."""
+    updated = await patient_crud.update_patient(db, patient_id, patient)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return updated
+
+
 @app.get("/patients/{patient_id}", response_model=PatientResponse)
 async def get_patient(
     patient_id: int,

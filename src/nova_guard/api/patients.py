@@ -24,6 +24,23 @@ async def create_patient(db: AsyncSession, patient: PatientCreate) -> Patient:
     return db_patient
 
 
+async def update_patient(
+    db: AsyncSession, patient_id: int, patient_data: PatientCreate
+) -> Optional[Patient]:
+    """Update an existing patient."""
+    db_patient = await get_patient(db, patient_id)
+    if not db_patient:
+        return None
+
+    update_data = patient_data.model_dump(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_patient, key, value)
+
+    await db.flush()
+    await db.refresh(db_patient)
+    return db_patient
+
+
 async def get_patient(db: AsyncSession, patient_id: int) -> Optional[Patient]:
     """Get patient by ID with all related data."""
     result = await db.execute(

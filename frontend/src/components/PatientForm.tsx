@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react"
-import { User, AlertTriangle, Edit2, Check, Search } from "lucide-react" // Added Search
+import { User, AlertTriangle, Edit2, Search, X, Check } from "lucide-react" // Added Search
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { createPatient, addAllergy, getPatientByMRN, type Patient } from "@/services/api"
+import { createPatient, updatePatient, addAllergy, getPatientByMRN, type Patient } from "@/services/api"
 
 interface PatientFormProps {
   initialPatient: Patient | null
@@ -61,8 +61,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
     
     setIsSaving(true)
     try {
-        // Create Patient in Backend
-        const newPatient = await createPatient({
+        const payload = {
             name: formData.name,
             date_of_birth: formData.date_of_birth,
             medical_record_number: formData.medical_record_number,
@@ -71,17 +70,29 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
             egfr: formData.egfr ? Number(formData.egfr) : undefined,
             is_pregnant: formData.is_pregnant || false,
             is_nursing: formData.is_nursing || false
-        })
+        }
 
-        // Add Allergies if any
+        let savedPatient: Patient
+        if (formData.id) {
+            // Update Existing (PUT)
+            savedPatient = await updatePatient(formData.id, payload)
+        } else {
+            // Create New (POST)
+            savedPatient = await createPatient(payload)
+        }
+
+        // Add Allergies if any (simple add-only logic for now)
         if (formData.allergies && formData.allergies.length > 0) {
-            await Promise.all(formData.allergies.map(a => addAllergy(newPatient.id, a.allergen)))
-            // Re-fetch or manually construct full object? logic simplification:
-            newPatient.allergies = formData.allergies
+            // Filter out empty strings if any
+            const newAllergies = formData.allergies.filter(a => a.allergen.trim() !== "")
+            if (newAllergies.length > 0) {
+                 await Promise.all(newAllergies.map(a => addAllergy(savedPatient.id, a.allergen)))
+                 savedPatient.allergies = newAllergies
+            }
         }
 
         setIsEditing(false)
-        onSave(newPatient)
+        onSave(savedPatient)
     } catch (err) {
         console.error("Failed to save patient", err)
         alert("Failed to save patient. Check console.")
@@ -149,7 +160,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                 <User className="h-4 w-4 text-teal-600" />
-                Edit Profile
+                Patient Profile
             </h3>
             {initialPatient && (
                 <Button variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
@@ -263,20 +274,72 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         </div>
 
         {/* Allergies ... */}
-             <div className="space-y-2">
-                <Label>Allergies</Label>
+        {/* Allergies (Tag Input) */}
+        <div className="space-y-2">
+            <Label>Allergies</Label>
+            <div className="flex gap-2">
                 <Input 
-                    value={formData.allergies?.map(a => a.allergen).join(", ") || ""} 
-                    onChange={e => {
-                        const allergens = e.target.value.split(",").map(s => s.trim()).filter(Boolean)
-                        setFormData({
-                            ...formData, 
-                            allergies: allergens.map(a => ({ allergen: a, severity: "unknown" }))
-                        })
+                    id="allergy-input"
+                    placeholder="Type allergen (e.g. Penicillin) and press Enter"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault()
+                            const val = e.currentTarget.value.trim()
+                            if (val) {
+                                const current = formData.allergies || []
+                                if (!current.some(a => a.allergen.toLowerCase() === val.toLowerCase())) {
+                                    setFormData({
+                                        ...formData,
+                                        allergies: [...current, { allergen: val, severity: "unknown" }]
+                                    })
+                                }
+                                e.currentTarget.value = ""
+                            }
+                        }
                     }}
-                    placeholder="e.g. Penicillin"
                 />
+                <Button 
+                    variant="outline" 
+                    onClick={() => {
+                        const input = document.getElementById("allergy-input") as HTMLInputElement
+                        const val = input.value.trim()
+                        if (val) {
+                            const current = formData.allergies || []
+                            if (!current.some(a => a.allergen.toLowerCase() === val.toLowerCase())) {
+                                setFormData({
+                                    ...formData,
+                                    allergies: [...current, { allergen: val, severity: "unknown" }]
+                                })
+                            }
+                            input.value = ""
+                        }
+                    }}
+                >
+                    Add
+                </Button>
             </div>
+            
+            <div className="flex flex-wrap gap-2 min-h-[40px] p-2 bg-slate-50 rounded-md border border-slate-100">
+                {formData.allergies && formData.allergies.length > 0 ? (
+                    formData.allergies.map((allergy, i) => (
+                        <span key={i} className="inline-flex items-center px-2 py-1 rounded text-sm font-medium bg-amber-100 text-amber-800 border border-amber-200">
+                            {allergy.allergen}
+                            <button 
+                                onClick={() => {
+                                    const newList = formData.allergies?.filter((_, idx) => idx !== i)
+                                    setFormData({...formData, allergies: newList})
+                                }}
+                                className="ml-1.5 hover:bg-amber-200 rounded-full p-0.5"
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
+                        </span>
+                    ))
+                ) : (
+                    <span className="text-sm text-slate-400 italic">No allergies added.</span>
+                )}
+            </div>
+        </div>
         </div>
 
         <div className="flex justify-end pt-2">

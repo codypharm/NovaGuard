@@ -9,40 +9,6 @@ from nova_guard.models.patient import AllergyType, Severity
 
 
 # ============================================================================
-# Patient Schemas
-# ============================================================================
-
-class PatientBase(BaseModel):
-    """Base patient schema."""
-
-    name: str = Field(..., min_length=1, max_length=255)
-    date_of_birth: date
-    medical_record_number: Optional[str] = Field(None, max_length=100)
-    weight: Optional[str] = Field(None, max_length=50)
-    height: Optional[str] = Field(None, max_length=50)
-    age_years: Optional[int] = Field(None, ge=0, le=150)
-    is_pregnant: bool = False
-    is_nursing: bool = False
-    egfr: Optional[float] = Field(None, ge=0, description="Kidney function (mL/min/1.73m²)")
-
-
-class PatientCreate(PatientBase):
-    """Schema for creating a new patient."""
-
-    pass
-
-
-class PatientResponse(PatientBase):
-    """Schema for patient response."""
-
-    id: int
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-# ============================================================================
 # Drug History Schemas
 # ============================================================================
 
@@ -130,6 +96,44 @@ class AdverseReactionResponse(BaseModel):
     symptoms: str
     notes: Optional[str]
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# Patient Schemas
+# ============================================================================
+
+class PatientBase(BaseModel):
+    """Base patient schema."""
+
+    name: str = Field(..., min_length=1, max_length=255)
+    date_of_birth: date
+    medical_record_number: Optional[str] = Field(None, max_length=100)
+    weight: Optional[str] = Field(None, max_length=50)
+    height: Optional[str] = Field(None, max_length=50)
+    age_years: Optional[int] = Field(None, ge=0, le=150)
+    is_pregnant: bool = False
+    is_nursing: bool = False
+    egfr: Optional[float] = Field(None, ge=0, description="Kidney function (mL/min/1.73m²)")
+
+
+class PatientCreate(PatientBase):
+    """Schema for creating a new patient."""
+
+    pass
+
+
+class PatientResponse(PatientBase):
+    """Schema for patient response."""
+
+    id: int
+    created_at: datetime
+    updated_at: datetime
+    
+    allergies: list[AllergyResponse] = []
+    drug_history: list[DrugHistoryResponse] = []
+    adverse_reactions: list[AdverseReactionResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
