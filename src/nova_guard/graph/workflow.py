@@ -21,7 +21,7 @@ from nova_guard.graph.nodes import (
 )
 
 
-def create_prescription_workflow():
+def create_prescription_workflow(checkpointer=None):
     """
     Create the prescription processing workflow.
     
@@ -139,14 +139,15 @@ def create_prescription_workflow():
     # Compile with checkpointer (enables interrupts)
     # ========================================================================
     
-    checkpointer = MemorySaver()
+    # ========================================================================
+    # Compile with checkpointer (enables interrupts)
+    # ========================================================================
     
-    app = workflow.compile(
-        checkpointer=checkpointer
-    )
+    # Checkpointer is now passed in or None (memory is default/fallback, but we want Postgres)
+    # If checkpointer is None, we can default to MemorySaver for dev/tests if needed, 
+    # but for this refactor we expect it to be passed in.
     
-    return app
+    return workflow.compile(checkpointer=checkpointer)
 
-
-# Create the compiled workflow
-prescription_workflow = create_prescription_workflow()
+# Global instance removed/commented out as it will be created in lifespan
+# prescription_workflow = create_prescription_workflow()

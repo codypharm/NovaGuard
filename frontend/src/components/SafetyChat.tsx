@@ -4,9 +4,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Send, User as UserIcon, Bot, Paperclip, X, Mic } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
-
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { getSessionHistory } from '@/services/api'
+
 
 interface Message {
   id: string
@@ -16,6 +17,7 @@ interface Message {
 }
 
 interface SafetyChatProps {
+  sessionId: string
   verdict: Verdict | null
   isProcessing: boolean
   onProcess: (text: string, file: File | null) => void
@@ -23,7 +25,7 @@ interface SafetyChatProps {
   onResponseShown: () => void
 }
 
-export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
+export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState("")
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
@@ -32,6 +34,37 @@ export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  
+  // Load History on Session Change
+  useEffect(() => {
+      if (!sessionId) return
+      
+      const loadHistory = async () => {
+          try {
+              const history = await getSessionHistory(sessionId)
+              const formattedMessages: Message[] = history.map(msg => ({
+                  id: msg.id,
+                  role: msg.role,
+                  timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
+                  content: msg.role === 'assistant' ? (
+                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert prose-headings:text-slate-900 prose-h2:text-slate-900 prose-h3:text-slate-900 prose-p:text-slate-800 prose-li:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold prose-th:text-slate-900 prose-td:text-slate-800">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(msg.content)}</ReactMarkdown>
+                      </div>
+                  ) : (
+                      <p>{msg.content}</p>
+                  )
+              }))
+              // Only set messages if we have history, otherwise keep empty or existing
+              if (formattedMessages.length > 0) {
+                  setMessages(formattedMessages)
+              }
+          } catch (err) {
+              console.error("Failed to load history", err)
+          }
+      }
+      
+      loadHistory()
+  }, [sessionId])
 
   // Effect to add assistant response when it arrives
   useEffect(() => {
@@ -50,6 +83,8 @@ export function SafetyChat({ verdict, isProcessing, onProcess, assistantResponse
       onResponseShown() // Clear the prop so we don't re-add it
     }
   }, [assistantResponse, onResponseShown])
+
+  // ... rest of component
 
   // Effect to add verdict as a message when it arrives
   useEffect(() => {

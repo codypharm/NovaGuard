@@ -343,7 +343,11 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
         </div>
 
         <div className="flex justify-end pt-2">
-            <Button onClick={handleSave} className="w-full bg-teal-600 hover:bg-teal-700" disabled={isSaving}>
+            <Button 
+                onClick={handleSave} 
+                className="w-full bg-teal-600 hover:bg-teal-700" 
+                disabled={isSaving || (!formData.name && !formData.medical_record_number)}
+            >
                 {isSaving ? (
                     <span className="flex items-center gap-2">
                         <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></div>

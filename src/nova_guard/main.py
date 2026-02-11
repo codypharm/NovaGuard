@@ -2,13 +2,15 @@
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional
+import os
 
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from nova_guard.database import get_db
 from nova_guard.api import patients as patient_crud
+from nova_guard.api import sessions as session_crud
 from nova_guard.schemas.patient import (
     PatientCreate,
     PatientResponse,
@@ -20,16 +22,57 @@ from nova_guard.schemas.patient import (
     AdverseReactionResponse,
 )
 
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from nova_guard.database import engine
+from nova_guard.graph.workflow import create_prescription_workflow
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
-    """Application lifespan manager."""
-    # Startup
     print("🚀 Nova Clinical Guard starting up...")
-    yield
-    # Shutdown
-    print("👋 Nova Clinical Guard shutting down...")
 
+    try:
+        # Read directly from environment variable
+        database_url = os.getenv("DATABASE_URL")
+        
+        if not database_url:
+            raise ValueError("DATABASE_URL environment variable not set")
+        
+        # Convert asyncpg to psycopg format for LangGraph
+        conn_string = database_url.replace("postgresql+asyncpg://", "postgresql://")
+        
+        # Mask password for logging
+        if "@" in conn_string:
+            parts = conn_string.split("@")
+            credentials = parts[0].split("://")[1]
+            if ":" in credentials:
+                user = credentials.split(":")[0]
+                masked = conn_string.replace(credentials, f"{user}:***")
+                print(f"Checkpointer connection string (masked): {masked}")
+        
+        async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
+            print("📥 Initializing Workflow with Postgres Persistence...")
+            app.state.prescription_workflow = create_prescription_workflow(checkpointer)
+            
+            await checkpointer.setup()
+            
+            print("🗄️ Ensuring Database Tables...")
+            from nova_guard.database import Base
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+
+            yield
+
+    except Exception as exc:
+        print(f"❌ Lifespan startup failed: {exc}")
+        raise
+
+    finally:
+        print("👋 Nova Clinical Guard shutting down...")
 
 app = FastAPI(
     title="Nova Clinical Guard",
@@ -191,16 +234,20 @@ async def add_adverse_reaction(
 
 @app.post("/clinical-interaction/process")
 async def process_clinical_interaction(
-    patient_id: int = Form(...),
+    patient_id: Optional[int] = Form(None),
     prescription_text: Optional[str] = Form(None),
+    session_id: str = Form(...),
     file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+    request: Request = None,  # Added to access app.state
 ):
     """
     Unified endpoint for all clinical interactions. 
     Handles images, text prescriptions, and assistant follow-ups.
     """
-    from nova_guard.graph.workflow import prescription_workflow
-    print("patien id:", patient_id)
+    # from nova_guard.graph.workflow import prescription_workflow
+    
+    
     # 1. Prepare Input Data
     image_bytes = await file.read() if file else None
     
@@ -209,20 +256,28 @@ async def process_clinical_interaction(
         "patient_id": patient_id,
         "prescription_text": prescription_text,
         "prescription_image": image_bytes,
-        "chat_history": [], 
-        "messages": []
+        # chat_history is managed by checkpointer, but we can seed it here if needed
     }
     
-    # 3. Execution Config (Threaded by Patient ID for persistence)
-    config = {"configurable": {"thread_id": f"session-{patient_id}"}}
+    # 3. Session Management
+    # Ensure session exists and link to patient if provided
+    if patient_id:
+        await session_crud.update_session_patient(db, session_id, patient_id)
+    else:
+        # Just ensure session exists
+        await session_crud.update_session_patient(db, session_id, None)
+
+    # 4. Execution Config
+    config = {"configurable": {"thread_id": session_id}}
     
     try:
         # Initial invocation triggers the Gateway Supervisor
-        result = await prescription_workflow.ainvoke(initial_state, config)
+        workflow = request.app.state.prescription_workflow
+        result = await workflow.ainvoke(initial_state, config)
         
         # 4. Handle Human-in-the-Loop (HITL) for Extraction
         # If the graph is waiting for confirmation, we return the current state
-        state_snapshot = await prescription_workflow.aget_state(config)
+        state_snapshot = await workflow.aget_state(config)
         
         if state_snapshot.next:
             # The graph is paused (likely at fetch_patient for verification)
@@ -253,6 +308,31 @@ async def process_clinical_interaction(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
+# Session Endpoints
+# ============================================================================
+
+@app.get("/sessions")
+async def list_recent_sessions(
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+):
+    """List recent sessions for sidebar."""
+    print(f"GET /sessions limit={limit}")
+    sessions = await session_crud.list_recent_sessions(db, limit=limit)
+    print(f"Found {len(sessions)} sessions")
+    return sessions
+
+
+@app.post("/sessions")
+async def create_session(
+    session_id: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create or initialize a session."""
+    return await session_crud.update_session_patient(db, session_id, None)
+
+
+# ============================================================================
 # Natural Language Query Endpoint
 # ============================================================================
 
@@ -273,3 +353,42 @@ async def natural_language_query(
     
     result = await parse_allergy_query(q, db)
     return result
+
+
+@app.get("/sessions/{session_id}/history")
+async def get_session_history(
+    session_id: str,
+    request: Request,
+):
+    """Retrieve chat history for a session."""
+    workflow = request.app.state.prescription_workflow
+    config = {"configurable": {"thread_id": session_id}}
+    
+    try:
+        # Get state from checkpointer
+        state_snapshot = await workflow.aget_state(config)
+        if not state_snapshot.values:
+            return []
+            
+        messages = state_snapshot.values.get("messages", [])
+        
+        # Transform to frontend format
+        history = []
+        for msg in messages:
+            role = "user" if msg.type == "human" else "assistant"
+            content = msg.content
+            
+            # Simple ID generation (in reality, msg.id might exist or we use index)
+            msg_id = getattr(msg, "id", f"{role}-{len(history)}")
+            
+            history.append({
+                "id": msg_id,
+                "role": role,
+                "content": content,
+                "timestamp": getattr(msg, "timestamp", None) # Timestamp might not be directly on msg
+            })
+            
+        return history
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return []

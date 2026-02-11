@@ -43,9 +43,15 @@ export async function getPatient(id: number): Promise<Patient> {
   return res.json()
 }
 
-export async function processClinicalInteraction(patientId: number, text: string, file: File | null): Promise<ProcessResponse> {
+export async function processClinicalInteraction(
+    sessionId: string,
+    patientId: number | null,
+    text: string,
+    file: File | null
+): Promise<ProcessResponse> {
     const formData = new FormData()
-    formData.append("patient_id", patientId.toString())
+    formData.append("session_id", sessionId)
+    if (patientId) formData.append("patient_id", patientId.toString())
     formData.append("input_type", file ? "image" : "text")
     if (text) formData.append("prescription_text", text)
     if (file) formData.append("file", file)
@@ -100,5 +106,42 @@ export async function getPatientByMRN(mrn: string): Promise<Patient | null> {
     const res = await fetch(`${API_URL}/patients/lookup/${mrn}`)
     if (res.status === 404) return null
     if (!res.ok) throw new Error("Failed to lookup patient")
+    return res.json()
+}
+
+export interface Session {
+    id: string
+    title: string
+    updated_at: string
+}
+
+export async function getSessions(limit: number = 20): Promise<Session[]> {
+    const res = await fetch(`${API_URL}/sessions?limit=${limit}`)
+    if (!res.ok) throw new Error("Failed to fetch sessions")
+    return res.json()
+}
+
+export async function createSession(sessionId: string): Promise<void> {
+    const formData = new FormData()
+    formData.append("session_id", sessionId)
+    
+    const res = await fetch(`${API_URL}/sessions`, {
+        method: "POST",
+        body: formData
+    })
+    
+    if (!res.ok) throw new Error("Failed to create session")
+}
+
+export interface ChatMessage {
+    id: string
+    role: 'user' | 'assistant'
+    content: string
+    timestamp?: string
+}
+
+export async function getSessionHistory(sessionId: string): Promise<ChatMessage[]> {
+    const res = await fetch(`${API_URL}/sessions/${sessionId}/history`)
+    if (!res.ok) return []
     return res.json()
 }

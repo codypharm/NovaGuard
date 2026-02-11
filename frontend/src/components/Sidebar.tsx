@@ -1,16 +1,22 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { History, FileText, Settings, Database, PlusCircle, LogOut } from "lucide-react"
+import { useSession } from "@/hooks/useSession"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function Sidebar({ className }: SidebarProps) {
-  // Mock session data
-  const recentSessions = [
-    { id: 1, label: "Patient #1024 - Lisinopril", time: "10m ago" },
-    { id: 2, label: "Scan #982 - Amoxicillin", time: "1h ago" },
-    { id: 3, label: "Patient #1023 - Metformin", time: "2h ago" },
-  ]
+  const { sessionId, sessionsHistory, createNewSession, loading } = useSession()
+
+  const handleNewSession = async () => {
+      const newId = await createNewSession()
+      // Force reload to ensure all components sync with new session
+      window.location.href = `?session=${newId}`
+  }
+
+  const handleSwitchSession = (id: string) => {
+      window.location.href = `?session=${id}`
+  }
 
   return (
     <div className={cn("pb-12 h-full border-r bg-white", className)}>
@@ -20,17 +26,38 @@ export function Sidebar({ className }: SidebarProps) {
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">
               Sessions
             </h2>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50">
+            <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50"
+                onClick={handleNewSession}
+            >
                 <PlusCircle className="h-5 w-5" />
             </Button>
           </div>
           <div className="space-y-1">
-            {recentSessions.map((session) => (
-              <Button key={session.id} variant="ghost" className="w-full justify-start font-normal">
+            {loading && sessionsHistory.length === 0 && (
+                <div className="px-4 text-xs text-slate-400">Loading...</div>
+            )}
+            {!loading && sessionsHistory.length === 0 && (
+                <div className="px-4 text-xs text-slate-400">No sessions found.</div>
+            )}
+            {sessionsHistory.map((session) => (
+              <Button 
+                key={session.id} 
+                variant="ghost" 
+                className={cn(
+                    "w-full justify-start font-normal",
+                    sessionId === session.id && "bg-slate-100 text-slate-900 font-medium"
+                )}
+                onClick={() => handleSwitchSession(session.id)}
+              >
                 <History className="mr-2 h-4 w-4 text-slate-400" />
-                <div className="flex flex-col items-start truncate text-ellipsis">
-                    <span className="truncate w-full text-left">{session.label}</span>
-                    <span className="text-[10px] text-slate-400">{session.time}</span>
+                <div className="flex flex-col items-start truncate text-ellipsis w-full">
+                    <span className="truncate w-full text-left">{session.title || "Untitled Session"}</span>
+                    <span className="text-[10px] text-slate-400">
+                        {new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                    </span>
                 </div>
               </Button>
             ))}

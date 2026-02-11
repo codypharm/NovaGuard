@@ -60,6 +60,9 @@ class Patient(Base):
     adverse_reactions: Mapped[list["AdverseReaction"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
+    sessions: Mapped[list["Session"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
 
 
 class DrugHistory(Base):
