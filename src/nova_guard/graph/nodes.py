@@ -485,7 +485,7 @@ async def assistant_node(state: PatientState) -> dict:
 
     # 1. Dynamic Instruction Set based on Intent
     intent_instructions = {
-        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications,  key mechanisms and many more informations. Assume the user is a pharmacist requiring professional depth.",
+        "MEDICAL_KNOWLEDGE": "Provide a detailed clinical overview from the FDA data. Include standard dosing, contraindications, key mechanisms, and black-box warnings. Assume the user is a pharmacist requiring professional depth. **CRITICAL:** Format the output using strict Markdown (## Headers, - Bullet points) for readability.",
         "CLINICAL_QUERY": "Focus on the intersection of the patient's history and the current meds. Be extremely cautious about allergy and interaction risks.",
         "AUDIT": "Explain the safety flags found during the prescription review. Help the pharmacist understand the 'Red' or 'Yellow' status.",
         "GENERAL_CHAT": "Be friendly, professional, and helpful. Maintain a Pharmacist assistant persona but feel free to engage in small talk with the pharmacist."
