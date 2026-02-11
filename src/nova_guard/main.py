@@ -340,6 +340,18 @@ async def create_session(
     return await session_crud.update_session_patient(db, session_id, None)
 
 
+@app.delete("/sessions/{session_id}", status_code=204)
+async def delete_session(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a session."""
+    deleted = await session_crud.delete_session(db, session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return None
+
+
 # ============================================================================
 # Natural Language Query Endpoint
 # ============================================================================

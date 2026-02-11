@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { getSessions, createSession as apiCreateSession, type Session } from '@/services/api'
+import { getSessions, createSession as apiCreateSession, deleteSession as apiDeleteSession, type Session } from '@/services/api'
 
 interface SessionContextType {
     sessionId: string
@@ -9,6 +9,7 @@ interface SessionContextType {
     createNewSession: () => Promise<string>
     refreshSessions: () => Promise<void>
     switchSession: (id: string) => void
+    deleteSession: (id: string) => Promise<void>
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined)
@@ -96,6 +97,30 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return newId
     }
 
+    const deleteSession = async (id: string) => {
+        try {
+            // Optimistic update
+            setSessionsHistory(prev => prev.filter(s => s.id !== id))
+            
+            // If deleting current session, switch to another
+            if (sessionId === id) {
+               const remaining = sessionsHistory.filter(s => s.id !== id)
+               if (remaining.length > 0) {
+                   switchSession(remaining[0].id)
+               } else {
+                   // Create new session if none left
+                   await createNewSession()
+               }
+            }
+
+            await apiDeleteSession(id)
+        } catch (err) {
+            console.error("Failed to delete session", err)
+            // Revert on failure? Ideally yes, but for now simple log.
+            await refreshSessions()
+        }
+    }
+
     return (
         <SessionContext.Provider value={{
             sessionId,
@@ -103,7 +128,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             loading,
             createNewSession,
             refreshSessions,
-            switchSession
+            switchSession,
+            deleteSession
         }}>
             {children}
         </SessionContext.Provider>

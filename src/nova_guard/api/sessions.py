@@ -80,3 +80,30 @@ async def list_recent_sessions(db: AsyncSession, limit: int = 20) -> List[Sessio
         )
     )
     return list(result.scalars().all())
+async def delete_session(db: AsyncSession, session_id: str) -> bool:
+    """Delete a session and its associated history."""
+    # 1. Delete from sessions table
+    result = await db.execute(select(Session).where(Session.id == session_id))
+    session = result.scalar_one_or_none()
+    
+    if session:
+        await db.delete(session)
+        
+        # 2. Cleanup LangGraph checkpoints (Raw SQL as we don't have models for these)
+        # Note: Checkpointer tables are usually 'checkpoints' and 'checkpoint_blobs'
+        # thread_id is stored in the metadata or configuration column, usually keyed as thread_id
+        
+        # For AsyncPostgresSaver, the schema typically involves:
+        # checkpoints (thread_id, checkpoint_id, ...)
+        # checkpoint_blobs (thread_id, checkpoint_id, ...)
+        # checkpoint_writes (thread_id, checkpoint_id, ...)
+        
+        from sqlalchemy import text
+        await db.execute(text("DELETE FROM checkpoints WHERE thread_id = :tid"), {"tid": session_id})
+        await db.execute(text("DELETE FROM checkpoint_blobs WHERE thread_id = :tid"), {"tid": session_id})
+        await db.execute(text("DELETE FROM checkpoint_writes WHERE thread_id = :tid"), {"tid": session_id})
+        
+        await db.flush()
+        return True
+        
+    return False

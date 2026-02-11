@@ -134,6 +134,14 @@ export async function createSession(sessionId: string): Promise<void> {
     if (!res.ok) throw new Error("Failed to create session")
 }
 
+export async function deleteSession(sessionId: string): Promise<void> {
+    const res = await fetch(`${API_URL}/sessions/${sessionId}`, {
+        method: "DELETE"
+    })
+    
+    if (!res.ok) throw new Error("Failed to delete session")
+}
+
 export interface ChatMessage {
     id: string
     role: 'user' | 'assistant'

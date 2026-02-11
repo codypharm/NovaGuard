@@ -1,12 +1,24 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { History, FileText, Settings, Database, PlusCircle, LogOut } from "lucide-react"
+import { History, FileText, Settings, Database, PlusCircle, LogOut, Trash2 } from "lucide-react"
 import { useSessionContext } from "@/context/SessionContext"
+import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function Sidebar({ className }: SidebarProps) {
-  const { sessionId, sessionsHistory, createNewSession, switchSession, loading } = useSessionContext()
+  const { sessionId, sessionsHistory, createNewSession, switchSession, loading, deleteSession } = useSessionContext()
 
   const handleNewSession = async () => {
       await createNewSession()
@@ -41,23 +53,58 @@ export function Sidebar({ className }: SidebarProps) {
                 <div className="px-4 text-xs text-slate-400">No sessions found.</div>
             )}
             {sessionsHistory.map((session) => (
-              <Button 
-                key={session.id} 
-                variant="ghost" 
-                className={cn(
-                    "w-full justify-start font-normal",
-                    sessionId === session.id && "bg-slate-100 text-slate-900 font-medium"
-                )}
-                onClick={() => handleSwitchSession(session.id)}
-              >
-                <History className="mr-2 h-4 w-4 text-slate-400" />
-                <div className="flex flex-col items-start truncate text-ellipsis w-full">
-                    <span className="truncate w-full text-left">{session.title || "Untitled Session"}</span>
-                    <span className="text-[10px] text-slate-400">
-                        {new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                    </span>
-                </div>
-              </Button>
+              <div key={session.id} className="group relative flex items-center">
+                  <Button 
+                    variant="ghost" 
+                    className={cn(
+                        "w-full justify-start font-normal pr-8", 
+                        sessionId === session.id && "bg-slate-100 text-slate-900 font-medium"
+                    )}
+                    onClick={() => handleSwitchSession(session.id)}
+                  >
+                    <History className="mr-2 h-4 w-4 text-slate-400" />
+                    <div className="flex flex-col items-start truncate text-ellipsis w-full">
+                        <span className="truncate w-full text-left">{session.title || "Untitled Session"}</span>
+                        <span className="text-[10px] text-slate-400">
+                            {new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                        </span>
+                    </div>
+                  </Button>
+                  
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-slate-400 hover:text-rose-500 hover:bg-rose-50"
+                            onClick={(e) => e.stopPropagation()} 
+                        >
+                            <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Delete Session?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                                This will permanently delete the session "{session.title}" and all its history. This action cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
+                            <AlertDialogAction 
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteSession(session.id)
+                                    toast.success("Session deleted")
+                                }}
+                                className="bg-rose-600 hover:bg-rose-700 focus:ring-rose-600"
+                            >
+                                Delete
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+              </div>
             ))}
           </div>
         </div>
