@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { History, FileText, Settings, Database, PlusCircle, LogOut, Trash2 } from "lucide-react"
+import { History, FileText, Settings, Database, PlusCircle, LogOut, Trash2, User } from "lucide-react"
 import { useSessionContext } from "@/context/SessionContext"
 import { toast } from "sonner"
 import {
@@ -17,11 +17,14 @@ import {
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
+import { useUser, useClerk } from '@clerk/clerk-react'
 import { useNavigate } from "react-router-dom"
 
 export function Sidebar({ className }: SidebarProps) {
   const { sessionId, sessionsHistory, createNewSession, switchSession, loading, deleteSession, activeModule, setActiveModule } = useSessionContext()
   const navigate = useNavigate()
+  const { user } = useUser()
+  const { signOut } = useClerk()
 
   const handleNewSession = async () => {
       console.log("🖱️ Sidebar: handleNewSession clicked")
@@ -149,12 +152,34 @@ export function Sidebar({ className }: SidebarProps) {
           </div>
         </div>
 
-        {/* Bottom Area - Sign Out */}
-        <div className="px-3 mt-4 pt-4 border-t">
-             <Button variant="ghost" className="w-full justify-start text-rose-500 hover:text-rose-600 hover:bg-rose-50 h-10">
-                <LogOut className="mr-2 h-4 w-4" />
-                Sign Out
-            </Button>
+        {/* Bottom Area - User Profile & Sign Out */}
+        <div className="px-3 mt-auto pt-4 border-t bg-slate-50/50 pb-4">
+          <div className="flex items-center gap-3 px-3 mb-4">
+            <div className="h-10 w-10 rounded-full border-2 border-white shadow-sm overflow-hidden flex-shrink-0 bg-slate-200">
+              {user?.imageUrl ? (
+                <img src={user.imageUrl} alt={user.fullName || "User"} className="h-full w-full object-cover" />
+              ) : (
+                <User className="h-5 w-5 text-slate-400 m-2.5" />
+              )}
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-bold text-slate-900 truncate">
+                {user?.fullName || user?.username || "Guest User"}
+              </span>
+              <span className="text-[10px] text-slate-500 truncate">
+                {user?.primaryEmailAddress?.emailAddress || "Clinical Access"}
+              </span>
+            </div>
+          </div>
+          
+          <Button 
+            variant="ghost" 
+            onClick={() => signOut()}
+            className="w-full justify-start text-rose-500 hover:text-rose-600 hover:bg-rose-50 h-10 font-bold text-xs uppercase tracking-widest"
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            Sign Out
+          </Button>
         </div>
       </div>
     </div>
