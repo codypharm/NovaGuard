@@ -18,6 +18,18 @@ class BedrockClient:
     MODEL_LITE = "nova-lite-v1"
     MODEL_PRO = "nova-pro-v1"
     
+    def _clean_json(self, text: str) -> str:
+        """Removes markdown code blocks and ensures valid JSON string."""
+        if not text: return "{}"
+        clean = text.strip()
+        if "```" in clean:
+            # Find the first { and last }
+            start = clean.find("{")
+            end = clean.rfind("}")
+            if start != -1 and end != -1:
+                return clean[start:end+1]
+        return clean
+
     def __init__(self):
         # OpenAI Client for Text/Chat
         self.api_key = settings.nova_api_key
@@ -139,6 +151,107 @@ class BedrockClient:
         except Exception as e:
             print(f"❌ Entity Extraction Error: {e}")
             return text
+
+    # ========================================================================
+    # NEW: Clinical Tools (Nova Lite)
+    # ========================================================================
+    async def get_equivalents(self, drug_name: str) -> str:
+        """Maps therapeutic classmates and 2026 interchangeable biosimilars."""
+        if not self.openai_client: return "{}"
+
+        prompt = f"""
+        # Therapeutic Equivalents: {drug_name}
+        
+        Identify equivalents including:
+        1. **Classmates**: (e.g., other Statins with potency comparisons).
+        2. **Biosimilars**: 2026 Interchangeable standards (Purple Book).
+        3. **Interchangeability Rules**: Pharmacy specific substitution logic.
+        
+        Return a clean Markdown report with headers and tables.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_LITE,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Equivalents Error: {e}")
+            return "Unable to retrieve equivalents at this time."
+
+    async def get_interaction_insights(self, drugs: List[str]) -> str:
+        """Analyzes drug-drug interactions with metabolic pathway detail."""
+        if not self.openai_client: return "[]"
+
+        prompt = f"""
+        # Drug Interaction Insights
+        Analyzed Medications: {', '.join(drugs)}
+        
+        Provide:
+        1. **Severity Matrix**: Categorical risk levels.
+        2. **CYP450 Details**: Identify specific enzymes (3A4, 2D6, etc.) inhibited/induced.
+        3. **Clinical Action**: Recommended modification or monitoring.
+        
+        Return a clean Markdown report.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_MICRO,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Interactions Error: {e}")
+            return "Unable to analyze interactions at this time."
+
+    async def get_safety_and_counseling(self, drug_name: str) -> str:
+        """Generates the At-A-Glance Matrix and Patient Counseling Card."""
+        if not self.openai_client: return "{}"
+
+        prompt = f"""
+        # Clinical Safety Profile: {drug_name}
+        
+        Include:
+        1. **Safety Matrix**: (Pregnancy, Lactation, Geriatric, Pediatric) with risk levels.
+        2. **Patient Counseling**: 3 critical focus points.
+        3. **Black Box Warning**: Current FDA status.
+        
+        Return a clean Markdown report with headers and bold highlights.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_PRO,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Safety Analysis Error: {e}")
+            return "Safety profile unavailable."
+
+    async def get_renal_adjustment(self, drug_name: str, crcl: float, weight_info: str) -> str:
+        """Provides AI-driven renal dosing recommendations based on calculated CrCl."""
+        if not self.openai_client: return "{}"
+
+        prompt = f"""
+        # Renal Dosing Assessment: {drug_name}
+        Calculated CrCl: **{crcl} mL/min** (using {weight_info})
+        
+        Provide:
+        1. **Dosing Strategy**: (Standard / Reduced / Extended Interval / Contraindicated).
+        2. **Specific Recommendation**: (e.g., Target dose and frequency).
+        3. **Clinical Rationale**: Reference PI/FDA guidance.
+        
+        Return a concise Markdown clinical report.
+        """
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_LITE,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Renal Adjustment Error: {e}")
+            return "Renal dosing guidance unavailable."
 
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)

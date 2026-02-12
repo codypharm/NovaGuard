@@ -1,57 +1,35 @@
 import React, { useState } from 'react'
-import { Search, Calculator, Shuffle, AlertTriangle, ShieldCheck, TestTube } from 'lucide-react'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Search, Calculator, Shuffle, ShieldCheck, TestTube, Scale, User, Activity, Info } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 // ============================================================================
 // Types
 // ============================================================================
-interface SafetyProfile {
-    matrix: {
-        pregnancy: "RED" | "YELLOW" | "GREEN" | "GRAY"
-        lactation: "RED" | "YELLOW" | "GREEN" | "GRAY"
-        geriatric: "RED" | "YELLOW" | "GREEN" | "GRAY"
-        pediatric: "RED" | "YELLOW" | "GREEN" | "GRAY"
-    }
-    bbw: string | null
-    counseling: {
-        purpose: string
-        administration: string
-        red_flags: string
-    }
-}
+// Clinical reports are now handled as Markdown strings
 
 // ============================================================================
 // Sub-Components
 // ============================================================================
 
-const SafetyMatrix = ({ data }: { data: SafetyProfile }) => (
-    <div className="grid grid-cols-4 gap-2 mb-4">
-        {Object.entries(data.matrix).map(([cat, risk]) => (
-            <div key={cat} className={`flex flex-col items-center justify-center p-2 rounded border ${
-                risk === 'RED' ? 'bg-red-50 border-red-200 text-red-700' :
-                risk === 'YELLOW' ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
-                risk === 'GREEN' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
-                'bg-slate-50 border-slate-200 text-slate-400'
-            }`}>
-                <span className="text-xs font-semibold uppercase">{cat}</span>
-                <ShieldCheck className={`w-6 h-6 mt-1 ${
-                     risk === 'RED' ? 'fill-red-100' :
-                     risk === 'YELLOW' ? 'fill-yellow-100' :
-                     risk === 'GREEN' ? 'fill-emerald-100' :
-                     'fill-slate-100'
-                }`} />
-            </div>
-        ))}
+const MarkdownReport = ({ content, invert = false }: { content: string, invert?: boolean }) => (
+    <div className={`prose prose-sm max-w-none prose-headings:mb-2 ${
+        invert 
+            ? 'prose-invert prose-headings:text-white prose-p:text-slate-200 prose-strong:text-teal-300 prose-code:text-teal-300 prose-code:bg-white/10 prose-li:text-slate-200' 
+            : 'prose-teal prose-headings:text-slate-900 prose-p:text-slate-700 prose-strong:text-teal-900 prose-code:text-teal-600 prose-code:bg-teal-50 prose-li:text-slate-700'
+    } prose-code:px-1 prose-code:rounded`}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
     </div>
 )
 
 const DoseCalculator = () => {
-    const [stats, setStats] = useState({ age: "", weight: "", height: "", scr: "", sex: "male" })
+    const [stats, setStats] = useState({ age: "", weight: "", height: "", scr: "", sex: "male", drugName: "" })
     const [result, setResult] = useState<any>(null)
     const [loading, setLoading] = useState(false)
 
@@ -66,7 +44,8 @@ const DoseCalculator = () => {
                     weight_kg: parseFloat(stats.weight),
                     height_cm: parseFloat(stats.height),
                     scr: parseFloat(stats.scr),
-                    sex: stats.sex
+                    sex: stats.sex,
+                    drug_name: stats.drugName || null
                 })
             })
             const data = await res.json()
@@ -79,56 +58,156 @@ const DoseCalculator = () => {
     }
 
     return (
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid lg:grid-cols-2 gap-8 items-start">
+            {/* Form Side */}
             <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                        <Label>Age (years)</Label>
-                        <Input type="number" value={stats.age} onChange={e => setStats({...stats, age: e.target.value})} />
+                <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                        <TestTube className="w-4 h-4 text-teal-600" />
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Clinical Context</span>
                     </div>
                     <div className="space-y-2">
-                        <Label>Sex</Label>
-                        <select 
-                            className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                            value={stats.sex}
-                            onChange={e => setStats({...stats, sex: e.target.value})}
+                        <Label className="text-slate-600">Target Medication (Optional for AI Recommendation)</Label>
+                        <Input 
+                            placeholder="e.g. Enoxaparin, Gentamicin..." 
+                            value={stats.drugName} 
+                            onChange={e => setStats({...stats, drugName: e.target.value})} 
+                            className="bg-white border-slate-200 focus:border-teal-500 focus:ring-teal-500 h-11" 
+                        />
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                        <User className="w-4 h-4 text-slate-400" />
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Patient Information</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                            <Label className="text-slate-600">Age</Label>
+                            <Input type="number" placeholder="Years" value={stats.age} onChange={e => setStats({...stats, age: e.target.value})} className="bg-white border-slate-200 focus:border-teal-500 focus:ring-teal-500" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-600">Biological Sex</Label>
+                            <select 
+                                className="flex h-10 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                value={stats.sex}
+                                onChange={e => setStats({...stats, sex: e.target.value})}
+                            >
+                                <option value="male">Male</option>
+                                <option value="female">Female</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 space-y-4">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Scale className="w-4 h-4 text-slate-400" />
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Anthropometrics</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                         <div className="space-y-2">
+                            <Label className="text-slate-600">Weight (kg)</Label>
+                            <Input type="number" placeholder="70" value={stats.weight} onChange={e => setStats({...stats, weight: e.target.value})} className="bg-white border-slate-200 focus:border-teal-500 focus:ring-teal-500" />
+                        </div>
+                        <div className="space-y-2">
+                            <Label className="text-slate-600">Height (cm)</Label>
+                            <Input type="number" placeholder="175" value={stats.height} onChange={e => setStats({...stats, height: e.target.value})} className="bg-white border-slate-200 focus:border-teal-500 focus:ring-teal-500" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="p-4 bg-slate-50/50 rounded-xl border border-slate-100 space-y-4">
+                    <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                            <Activity className="w-4 h-4 text-teal-600" />
+                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Renal Function</span>
+                        </div>
+                        <Info className="w-3 h-3 text-slate-400 cursor-help" />
+                    </div>
+                    <div className="space-y-2">
+                        <Label className="text-slate-600">Serum Creatinine (mg/dL)</Label>
+                        <Input type="number" step="0.1" placeholder="1.0" value={stats.scr} onChange={e => setStats({...stats, scr: e.target.value})} className="bg-white border-slate-200 focus:border-teal-500 focus:ring-teal-500" />
+                    </div>
+                </div>
+
+                <div className="flex gap-2 mt-2">
+                    <Button 
+                        onClick={calculate} 
+                        disabled={loading} 
+                        className={`flex-1 h-12 font-bold rounded-lg shadow-sm transition-all active:scale-95 ${
+                            result ? 'bg-slate-200 text-slate-700 hover:bg-slate-300' : 'bg-teal-600 hover:bg-teal-700 text-white'
+                        }`}
+                    >
+                        {loading ? "Processing..." : result ? "Recheck" : "Generate Clinical Assessment"}
+                    </Button>
+                    
+                    {result && (
+                        <Button 
+                            onClick={() => setResult(null)} 
+                            variant="outline" 
+                            className="h-12 px-6 border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 font-bold rounded-lg transition-all"
                         >
-                            <option value="male">Male</option>
-                            <option value="female">Female</option>
-                        </select>
-                    </div>
+                            Reset
+                        </Button>
+                    )}
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                     <div className="space-y-2">
-                        <Label>Weight (kg)</Label>
-                        <Input type="number" value={stats.weight} onChange={e => setStats({...stats, weight: e.target.value})} />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Height (cm)</Label>
-                        <Input type="number" value={stats.height} onChange={e => setStats({...stats, height: e.target.value})} />
-                    </div>
-                </div>
-                <div className="space-y-2">
-                    <Label>Serum Creatinine (mg/dL)</Label>
-                    <Input type="number" step="0.1" value={stats.scr} onChange={e => setStats({...stats, scr: e.target.value})} />
-                </div>
-                <Button onClick={calculate} disabled={loading} className="w-full">
-                    {loading ? "Calculating..." : "Calculate CrCl"}
-                </Button>
             </div>
 
-            {result && (
-                <div className="bg-slate-900 text-white p-6 rounded-lg flex flex-col justify-center items-center">
-                    <span className="text-slate-400 text-sm uppercase tracking-wider mb-2">Creatinine Clearance</span>
-                    <div className="text-5xl font-bold mb-2">{result.crcl}</div>
-                    <span className="text-xl text-slate-300">{result.unit}</span>
-                    
-                    <div className="mt-6 pt-6 border-t border-slate-700 w-full text-center">
-                        <span className="text-emerald-400 font-medium">{result.weight_used} Used</span>
-                        <p className="text-slate-400 text-sm mt-2">Cockcroft-Gault Equation</p>
+            {/* Result Side - Matches form height */}
+            <div className="h-[650px] lg:h-[660px] flex flex-col">
+                {result ? (
+                    <div className="h-full animate-in fade-in slide-in-from-right-4 duration-500 flex flex-col bg-slate-900 rounded-2xl border border-slate-800 shadow-2xl overflow-hidden relative">
+                        {/* Summary Header */}
+                        <div className="p-8 pb-6 border-b border-white/5 shrink-0">
+                            <span className="text-teal-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-4 block">Calculated Clearance</span>
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-7xl font-black text-white tabular-nums tracking-tighter">{result.crcl}</span>
+                                <span className="text-teal-500/50 font-bold text-lg uppercase italic">mL/min</span>
+                            </div>
+                            
+                            <div className="grid grid-cols-2 gap-3 mt-6">
+                                <div className="bg-white/5 p-3 rounded-xl border border-white/5 text-left">
+                                    <div className="text-slate-400 text-[9px] uppercase font-bold tracking-wider mb-1">Dosing Weight</div>
+                                    <div className="text-white text-xs font-bold">{result.weight_used}</div>
+                                </div>
+                                <div className="bg-white/5 p-3 rounded-xl border border-white/5 text-left">
+                                    <div className="text-slate-400 text-[9px] uppercase font-bold tracking-wider mb-1">Protocol</div>
+                                    <div className="text-white text-xs font-bold">Cockcroft-Gault</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Scrollable recommendation part */}
+                        <div className="flex-1 overflow-y-auto p-8 pt-6 space-y-6">
+                            {result.recommendation ? (
+                                <div className="w-full text-left bg-teal-500/10 border border-teal-500/20 rounded-xl p-6">
+                                    <div className="flex items-center gap-2 mb-4 pb-2 border-b border-teal-500/10">
+                                        <ShieldCheck className="w-4 h-4 text-teal-400" />
+                                        <span className="text-[10px] font-bold text-teal-400 uppercase tracking-widest">Therapeutic Recommendation</span>
+                                    </div>
+                                    <MarkdownReport content={result.recommendation} invert />
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center h-full opacity-30 italic">
+                                    <p className="text-slate-400 text-sm italic text-center px-8">No medication specified. AI clinical dosing adjustment skipped.</p>
+                                </div>
+                            )}
+                            
+                            {/* Removed footer button - moved to form side */}
+                        </div>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="h-full border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center p-12 text-center bg-slate-50/30">
+                        <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mb-6 shadow-sm border border-slate-100">
+                            <Calculator className="w-8 h-8 text-teal-600" />
+                        </div>
+                        <h4 className="text-slate-900 font-bold mb-2 uppercase tracking-widest text-xs">Awaiting Parameters</h4>
+                        <p className="text-slate-500 text-sm max-w-[240px]">Enter patient metrics to generate a validated clinical renal profile.</p>
+                    </div>
+                )}
+            </div>
         </div>
     )
 }
@@ -159,27 +238,48 @@ const InteractionSandbox = () => {
     }
 
     return (
-        <div className="space-y-4">
-             <div className="flex gap-2">
-                <Input 
-                    placeholder="Enter drugs separated by comma (e.g. Warfarin, Aspirin, Lisinopril)..." 
-                    value={navText}
-                    onChange={e => setNavText(e.target.value)}
-                />
-                <Button onClick={analyze} disabled={loading}>
-                    {loading ? "Analyzing..." : "Check Interactions"}
-                </Button>
+        <div className="space-y-6">
+             <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 shadow-inner group transition-all focus-within:border-teal-200">
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Activity className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-teal-600 transition-colors" />
+                        <Input 
+                            placeholder="e.g. Warfarin, Aspirin, Lisinopril..." 
+                            value={navText}
+                            onChange={e => setNavText(e.target.value)}
+                            className="pl-10 border-transparent bg-transparent focus:border-transparent focus:ring-0 shadow-none h-11 text-slate-700"
+                        />
+                    </div>
+                    <Button onClick={analyze} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white px-6 h-11 shrink-0 rounded-lg font-semibold transition-all active:scale-95 shadow-sm">
+                        {loading ? "Analyzing..." : "Check Interactions"}
+                    </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2 overflow-x-auto">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight whitespace-nowrap">Examples:</span>
+                    {["Warfarin, Aspirin", "Lisinopril, Spironolactone"].map(regimen => (
+                        <button 
+                            key={regimen}
+                            onClick={() => setNavText(regimen)}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700 transition-colors border border-slate-200"
+                        >
+                            {regimen}
+                        </button>
+                    ))}
+                </div>
             </div>
             
             {analysis && (
-                <div className="mt-4 space-y-4 animate-in fade-in slide-in-from-top-2">
-                   {/* Render dynamic JSON usage from backend */}
-                   <div className="p-4 bg-white border rounded-md shadow-sm">
-                       <pre className="whitespace-pre-wrap text-sm text-slate-700 font-mono">
-                           {JSON.stringify(analysis, null, 2)}
-                       </pre>
-                   </div>
-                </div>
+                <Card className="border-teal-100 shadow-sm bg-teal-50/20 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <CardHeader className="bg-teal-50/50 py-3 border-b border-teal-100">
+                        <div className="flex items-center gap-2">
+                            <TestTube className="w-4 h-4 text-teal-600" />
+                            <CardTitle className="text-sm font-bold text-teal-800 uppercase tracking-widest">Clinical Interaction Assessment</CardTitle>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="p-6">
+                        <MarkdownReport content={analysis} />
+                    </CardContent>
+                </Card>
             )}
         </div>
     )
@@ -205,23 +305,49 @@ const SubstitutionTable = () => {
     }
 
     return (
-        <div className="space-y-4">
-            <div className="flex gap-2">
-                <Input 
-                    placeholder="Enter drug name (e.g. Lipitor)..." 
-                    value={query}
-                    onChange={e => setQuery(e.target.value)}
-                />
-                <Button onClick={search} disabled={loading}>
-                    {loading ? "Searching..." : "Find Equivalents"}
-                </Button>
+        <div className="space-y-6">
+            <div className="bg-slate-50/50 p-4 rounded-xl border border-slate-100 shadow-inner group transition-all focus-within:border-teal-200">
+                <div className="flex gap-2">
+                    <div className="relative flex-1">
+                        <Shuffle className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-teal-600 transition-colors" />
+                        <Input 
+                            placeholder="e.g. Lipitor (Atorvastatin)..." 
+                            value={query}
+                            onChange={e => setQuery(e.target.value)}
+                            className="pl-10 border-transparent bg-transparent focus:border-transparent focus:ring-0 shadow-none h-11 text-slate-700"
+                        />
+                    </div>
+                    <Button onClick={search} disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white px-6 h-11 shrink-0 rounded-lg font-semibold transition-all active:scale-95 shadow-sm">
+                        {loading ? "Searching..." : "Find Substitutions"}
+                    </Button>
+                </div>
+                <div className="mt-2 flex items-center gap-2 overflow-x-auto">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-tight whitespace-nowrap">Shortages:</span>
+                    {["Lipitor", "Ozempic", "Adderall", "Amoxicillin"].map(drug => (
+                        <button 
+                            key={drug}
+                            onClick={() => setQuery(drug)}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-white text-slate-500 hover:bg-teal-50 hover:text-teal-700 transition-colors border border-slate-200"
+                        >
+                            {drug}
+                        </button>
+                    ))}
+                </div>
             </div>
 
              {results && (
-                <div className="mt-4 p-4 bg-white border rounded-md shadow-sm">
-                     <pre className="whitespace-pre-wrap text-sm text-slate-700 font-mono">
-                           {JSON.stringify(results, null, 2)}
-                       </pre>
+                <div className="animate-in fade-in slide-in-from-top-4 duration-500 space-y-4">
+                    <Card className="border-teal-100 shadow-sm bg-teal-50/20 overflow-hidden">
+                        <CardHeader className="bg-teal-50/50 py-3 border-b border-teal-100">
+                            <div className="flex items-center gap-2">
+                                <Shuffle className="w-4 h-4 text-teal-600" />
+                                <CardTitle className="text-sm font-bold text-teal-800 uppercase tracking-widest">Clinical Substitution Options</CardTitle>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-6">
+                            <MarkdownReport content={results} />
+                        </CardContent>
+                    </Card>
                 </div>
             )}
         </div>
@@ -234,7 +360,7 @@ const SubstitutionTable = () => {
  */
 export default function DrugOperationsModule() {
     const [searchQuery, setSearchQuery] = useState("")
-    const [drugData, setDrugData] = useState<SafetyProfile | null>(null)
+    const [drugData, setDrugData] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
 
     const handleSearch = async (e: React.FormEvent) => {
@@ -257,119 +383,123 @@ export default function DrugOperationsModule() {
     }
 
     return (
-        <div className="flex flex-col">
-            {/* Search Area */}
-            <div className="mb-6">
-                <form onSubmit={handleSearch} className="flex gap-2 mb-6">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5" />
+        <div className="flex flex-col space-y-8 pb-12">
+            {/* Search Area - More prominent clinical search */}
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Clinical Database Search</h3>
+                <form onSubmit={handleSearch} className="flex gap-3">
+                    <div className="relative flex-1 group">
+                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-teal-600 transition-colors" />
                         <Input 
-                            placeholder="Search clinical drug database (e.g. Lisinopril, Warfarin)..." 
-                            className="pl-10 h-12 text-lg"
+                            placeholder="Enter drug name (e.g. Warfarin, Lisinopril)..." 
+                            className="pl-11 h-14 text-lg border-slate-200 focus:border-teal-500 focus:ring-teal-500 rounded-lg bg-slate-50/50"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
-                    <Button type="submit" size="lg" disabled={loading} className="bg-teal-600 hover:bg-teal-700">
-                        {loading ? "Searching..." : "Analyze Drug"}
+                    <Button type="submit" size="lg" disabled={loading} className="h-14 px-8 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg shadow-sm transition-all active:scale-95">
+                        {loading ? "Analyzing..." : "Analyze Safety Profile"}
                     </Button>
                 </form>
 
-                {/* Dynamic Content */}
-                {drugData && (
-                    <div className="animate-in fade-in slide-in-from-top-4 duration-300 mb-8">
-                            {/* Black Box Warning - Sticky Note */}
-                        {drugData.bbw && (
-                            <div className="mb-6 p-4 bg-slate-900 text-white rounded-lg border-l-4 border-red-500 shadow-lg flex items-start gap-4">
-                                <AlertTriangle className="w-6 h-6 text-red-500 shrink-0 mt-1" />
-                                <div>
-                                    <h3 className="font-bold text-lg text-red-400 uppercase tracking-wider mb-1">Black Box Warning</h3>
-                                    <p className="text-slate-100 leading-relaxed font-medium">
-                                        {drugData.bbw}
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Safety Matrix */}
-                        {drugData.matrix && <SafetyMatrix data={drugData} />}
-                        
-                        {/* Counseling Cheat Sheet */}
-                        {drugData.counseling && (
-                            <div className="grid md:grid-cols-3 gap-4 mt-4">
-                                <div className="p-4 bg-teal-50 rounded border border-teal-100">
-                                    <h4 className="font-semibold text-teal-900 mb-2">Purpose</h4>
-                                    <p className="text-sm text-teal-800">{drugData.counseling.purpose}</p>
-                                </div>
-                                <div className="p-4 bg-teal-50 rounded border border-teal-100">
-                                    <h4 className="font-semibold text-teal-900 mb-2">Administration</h4>
-                                    <p className="text-sm text-teal-800">{drugData.counseling.administration}</p>
-                                </div>
-                                <div className="p-4 bg-rose-50 rounded border border-rose-100">
-                                    <h4 className="font-semibold text-rose-900 mb-2">Red Flags</h4>
-                                    <p className="text-sm text-rose-800">{drugData.counseling.red_flags}</p>
-                                </div>
-                            </div>
-                        )}
+                {/* Suggestions / Recent */}
+                {!drugData && (
+                    <div className="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
+                        <span className="text-xs text-slate-400 font-medium whitespace-nowrap">Common:</span>
+                        {["Warfarin", "Lisinopril", "Atorvastatin", "Metformin"].map(drug => (
+                            <button 
+                                key={drug}
+                                onClick={() => setSearchQuery(drug)}
+                                className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-teal-50 hover:text-teal-700 transition-colors whitespace-nowrap border border-slate-200"
+                            >
+                                {drug}
+                            </button>
+                        ))}
                     </div>
                 )}
             </div>
 
-            {/* Hub Modules */}
-            <Tabs defaultValue="sandbox" className="w-full">
-                <TabsList className="grid w-full grid-cols-3 bg-slate-200/50 p-1 mb-6">
-                    <TabsTrigger value="sandbox" className="data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-sm">
-                        <TestTube className="w-4 h-4 mr-2" />
-                        Interaction Sandbox
-                    </TabsTrigger>
-                    <TabsTrigger value="calculator" className="data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-sm">
-                        <Calculator className="w-4 h-4 mr-2" />
-                        Clinical Calculators
-                    </TabsTrigger>
-                    <TabsTrigger value="substitution" className="data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-sm">
-                        <Shuffle className="w-4 h-4 mr-2" />
-                        Substitutions
-                    </TabsTrigger>
-                </TabsList>
-
-                <div className="grid gap-6">
-                    <TabsContent value="sandbox" className="mt-0">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Multidrug Interaction Sandbox</CardTitle>
-                                <CardDescription>Analyze CYP450 metabolic pathways interactions without a patient profile.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <InteractionSandbox />
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    <TabsContent value="calculator" className="mt-0">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Renal & Hepatic Dosing</CardTitle>
-                                <CardDescription>Cockcroft-Gault Creatinine Clearance Calculator.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <DoseCalculator />
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
-
-                    <TabsContent value="substitution" className="mt-0">
-                        <Card>
-                            <CardHeader>
-                                <CardTitle>Therapeutic Equivalents</CardTitle>
-                                <CardDescription>Clinical substitution options for shortages or formulary management.</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                                <SubstitutionTable />
-                            </CardContent>
-                        </Card>
-                    </TabsContent>
+            {/* Dynamic Content area */}
+            {drugData && (
+                <div className="animate-in fade-in slide-in-from-top-4 duration-500 pb-8">
+                    <div className="flex items-center gap-3 mb-6">
+                        <div className="h-10 w-10 rounded-lg bg-teal-100 flex items-center justify-center text-teal-700">
+                            <ShieldCheck className="w-6 h-6" />
+                        </div>
+                        <div>
+                            <h2 className="text-2xl font-bold text-slate-900 capitalize">{searchQuery}</h2>
+                            <p className="text-sm text-slate-500 uppercase tracking-widest font-medium">Comprehensive Clinical Safety Report</p>
+                        </div>
+                    </div>
+                    
+                    <Card className="border-teal-100 shadow-lg bg-white overflow-hidden">
+                        <CardHeader className="bg-teal-50/50 py-4 border-b border-teal-100">
+                            <div className="flex items-center justify-between">
+                                <CardTitle className="text-sm font-bold text-teal-900 uppercase tracking-widest">At-A-Glance Pharmacy Profile</CardTitle>
+                                <div className="flex items-center gap-2">
+                                    <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                                    <span className="text-[10px] font-bold text-teal-700 uppercase tracking-tighter">AI-Generated Expert Consensus</span>
+                                </div>
+                            </div>
+                        </CardHeader>
+                        <CardContent className="p-8">
+                            <MarkdownReport content={drugData} />
+                        </CardContent>
+                    </Card>
                 </div>
-            </Tabs>
+            )}
+
+            {/* Hub Modules Tab Section - Styled for clinical look */}
+            <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+                <Tabs defaultValue="sandbox" className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 bg-slate-50 border-b border-slate-100 p-1">
+                        <TabsTrigger value="sandbox" className="h-12 data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none transition-all">
+                            <TestTube className="w-4 h-4 mr-2" />
+                            Interaction Sandbox
+                        </TabsTrigger>
+                        <TabsTrigger value="calculator" className="h-12 data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none transition-all">
+                            <Calculator className="w-4 h-4 mr-2" />
+                            Clinical Calculators
+                        </TabsTrigger>
+                        <TabsTrigger value="substitution" className="h-12 data-[state=active]:bg-white data-[state=active]:text-teal-600 data-[state=active]:shadow-none data-[state=active]:border-b-2 data-[state=active]:border-teal-500 rounded-none transition-all">
+                            <Shuffle className="w-4 h-4 mr-2" />
+                            Substitutions
+                        </TabsTrigger>
+                    </TabsList>
+
+                    <div className="p-6">
+                        <TabsContent value="sandbox" className="mt-0 outline-none">
+                            <div className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-lg font-bold text-slate-900 leading-none">Multidrug Interaction Sandbox</h3>
+                                    <p className="text-sm text-slate-500 mt-1">Analyze CYP450 metabolic pathways interactions without a patient profile.</p>
+                                </div>
+                                <InteractionSandbox />
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="calculator" className="mt-0 outline-none">
+                             <div className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-lg font-bold text-slate-900 leading-none">Renal & Hepatic Dosing</h3>
+                                    <p className="text-sm text-slate-500 mt-1">Cockcroft-Gault Creatinine Clearance Calculator.</p>
+                                </div>
+                                <DoseCalculator />
+                            </div>
+                        </TabsContent>
+
+                        <TabsContent value="substitution" className="mt-0 outline-none">
+                            <div className="space-y-4">
+                                <div className="flex flex-col">
+                                    <h3 className="text-lg font-bold text-slate-900 leading-none">Therapeutic Equivalents</h3>
+                                    <p className="text-sm text-slate-500 mt-1">Clinical substitution options for shortages or formulary management.</p>
+                                </div>
+                                <SubstitutionTable />
+                            </div>
+                        </TabsContent>
+                    </div>
+                </Tabs>
+            </div>
         </div>
     )
 }
