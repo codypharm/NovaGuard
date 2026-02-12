@@ -692,7 +692,7 @@ async def tools_node(state: PatientState) -> dict:
             "system_action": None
         }
 
-    return {"messages": messages + [AIMessage(content="⚠️ Tool action failed to trigger a response.")]}
+    # return {"messages": messages + [AIMessage(content="⚠️ Tool action failed to trigger a response.")]}
 
 async def openfda_node(state: PatientState) -> dict:
     """
@@ -708,7 +708,7 @@ async def openfda_node(state: PatientState) -> dict:
     if not prescriptions or not profile:
         return {
             "safety_flags": [],
-            "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
+            # "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
         }
     
     all_new_flags = []

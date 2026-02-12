@@ -75,9 +75,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const refreshSessions = async () => {
         try {
             setLoading(true)
-            console.log("📥 SessionContext: refreshSessions called")
+            // console.log("📥 SessionContext: refreshSessions called")
             const data = await getSessions()
-            console.log("📥 SessionContext: getSessions returned", data.length, "sessions", data)
+            // console.log("📥 SessionContext: getSessions returned", data.length, "sessions", data)
             setSessionsHistory(data)
             return data
         } catch (err) {
@@ -89,7 +89,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
 
     const switchSession = (id: string, updateUrl = true) => {
-        console.log(`🔄 SessionContext: switchSession to ${id} (updateUrl: ${updateUrl})`)
+       // console.log(`🔄 SessionContext: switchSession to ${id} (updateUrl: ${updateUrl})`)
         setSessionId(id)
         localStorage.setItem("nova_session_id", id)
 
@@ -104,11 +104,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const createNewSession = async () => {
         if (isCreatingRef.current) {
-            console.warn("⚠️ createNewSession blocked: already in progress")
+            // console.warn("⚠️ createNewSession blocked: already in progress")
             return ""
         }
         isCreatingRef.current = true
-        console.log("✨ SessionContext: createNewSession START")
+        // console.log("✨ SessionContext: createNewSession START")
         
         const newId = uuidv4()
         
