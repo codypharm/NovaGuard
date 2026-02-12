@@ -444,3 +444,59 @@ async def get_session_history(
     except Exception as e:
         print(f"Error fetching history: {e}")
         return []
+
+# ============================================================================
+# Clinical Tools Endpoints
+# ============================================================================
+
+from nova_guard.services.clinical_tools import ClinicalTools
+from pydantic import BaseModel
+import json
+
+# Initialize the service
+clinical_service = ClinicalTools()
+
+class CrClRequest(BaseModel):
+    age: int
+    weight_kg: float
+    height_cm: float
+    scr: float
+    sex: str
+
+class InteractionRequest(BaseModel):
+    drugs: list[str]
+
+@app.post("/clinical/calculate-crcl")
+async def calculate_crcl(data: CrClRequest):
+    """Calculate Creatinine Clearance."""
+    # Static method call
+    return clinical_service.calculate_crcl(
+        data.age, data.weight_kg, data.height_cm, data.scr, data.sex
+    )
+
+@app.post("/clinical/interactions")
+async def check_interactions(data: InteractionRequest):
+    """Get AI-driven interaction insights."""
+    json_str = await clinical_service.get_interaction_insights(data.drugs)
+    try:
+        return json.loads(json_str)
+    except:
+        return {"raw_response": json_str}
+
+@app.get("/clinical/substitutions/{drug_name}")
+async def get_substitutions(drug_name: str):
+    """Get therapeutic equivalents."""
+    json_str = await clinical_service.get_equivalents(drug_name)
+    try:
+        return json.loads(json_str)
+    except:
+        return {"raw_response": json_str}
+
+@app.get("/clinical/safety-profile/{drug_name}")
+async def get_safety_profile(drug_name: str):
+    """Get safety matrix and counseling."""
+    json_str = await clinical_service.generate_safety_and_counseling(drug_name)
+    try:
+        return json.loads(json_str)
+    except:
+        return {"raw_response": json_str}

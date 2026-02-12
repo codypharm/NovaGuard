@@ -7,6 +7,8 @@ interface SessionContextType {
     sessionId: string
     sessionsHistory: Session[]
     loading: boolean
+    activeModule: 'safety-check' | 'drug-operations'
+    setActiveModule: (module: 'safety-check' | 'drug-operations') => void
     createNewSession: () => Promise<string>
     refreshSessions: () => Promise<Session[]>
     switchSession: (id: string) => void
@@ -18,6 +20,7 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined)
 export function SessionProvider({ children }: { children: React.ReactNode }) {
     const [sessionId, setSessionId] = useState<string>("")
     const [sessionsHistory, setSessionsHistory] = useState<Session[]>([])
+    const [activeModule, setActiveModule] = useState<'safety-check' | 'drug-operations'>('safety-check')
     const [loading, setLoading] = useState(false)
 
     const { isLoaded, userId, getToken } = useAuth()
@@ -178,6 +181,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             sessionId,
             sessionsHistory,
             loading,
+            activeModule,
+            setActiveModule,
             createNewSession,
             refreshSessions,
             switchSession,

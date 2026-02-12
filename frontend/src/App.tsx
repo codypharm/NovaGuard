@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/sonner"
 import { ClerkProvider, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react"
 import LoginPage from "@/pages/LoginPage"
 import { setTokenProvider } from "@/services/api"
+import { Routes, Route } from "react-router-dom"
 import { useEffect } from "react"
 
 // Get key from environment
@@ -41,7 +42,10 @@ function App() {
       <SignedIn>
         <TokenSync>
             <SessionProvider>
-            <SafetyHUD />
+            <Routes>
+                <Route path="/" element={<SafetyHUD />} />
+                <Route path="/login" element={<LoginPage />} />
+            </Routes>
             <Toaster />
             </SessionProvider>
         </TokenSync>

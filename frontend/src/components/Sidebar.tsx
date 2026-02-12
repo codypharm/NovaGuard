@@ -17,21 +17,27 @@ import {
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
+import { useNavigate } from "react-router-dom"
+
 export function Sidebar({ className }: SidebarProps) {
-  const { sessionId, sessionsHistory, createNewSession, switchSession, loading, deleteSession } = useSessionContext()
+  const { sessionId, sessionsHistory, createNewSession, switchSession, loading, deleteSession, activeModule, setActiveModule } = useSessionContext()
+  const navigate = useNavigate()
 
   const handleNewSession = async () => {
       console.log("🖱️ Sidebar: handleNewSession clicked")
+      setActiveModule('safety-check')
       await createNewSession()
   }
 
   const handleSwitchSession = (id: string) => {
+      setActiveModule('safety-check')
       switchSession(id)
   }
 
   return (
     <div className={cn("pb-12 h-full border-r bg-white", className)}>
       <div className="space-y-4 py-4">
+        
         <div className="px-3 py-2">
           <div className="mb-2 px-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight text-slate-900">
@@ -119,7 +125,17 @@ export function Sidebar({ className }: SidebarProps) {
               <FileText className="mr-2 h-4 w-4" />
               Saved Reports
             </Button>
-            <Button variant="ghost" className="w-full justify-start">
+            <Button 
+                variant="ghost" 
+                className={cn(
+                    "w-full justify-start",
+                    activeModule === 'drug-operations' && "bg-slate-100 text-slate-900 font-medium"
+                )}
+                onClick={() => {
+                    setActiveModule('drug-operations')
+                    navigate("/") // Ensure we are on the main page which houses the modules
+                }}
+            >
               <Database className="mr-2 h-4 w-4" />
               Drug Operations
             </Button>

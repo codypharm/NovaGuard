@@ -122,7 +122,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     <p className="text-xs font-mono bg-slate-100 px-2 py-1 rounded inline-block mt-1">
                         {age} years old
                         {initialPatient.is_pregnant && <span className="ml-2 text-pink-600 font-semibold">• Pregnant</span>}
-                        {initialPatient.is_nursing && <span className="ml-2 text-purple-600 font-semibold">• Nursing</span>}
+                        {initialPatient.is_nursing && <span className="ml-2 text-teal-600 font-semibold">• Nursing</span>}
                         {initialPatient.egfr && <span className="ml-2 text-slate-600">• eGFR: {initialPatient.egfr}</span>}
                     </p>
                 </div>

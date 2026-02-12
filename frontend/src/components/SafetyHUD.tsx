@@ -6,9 +6,10 @@ import { PatientForm } from '@/components/PatientForm'
 import { type Verdict } from '@/components/SafetyAnalysis'
 import { processClinicalInteraction, type Patient } from '@/services/api'
 import { useSessionContext } from "@/context/SessionContext"
+import DrugOperationsModule from '@/components/DrugOperationsModule'
 
 export function SafetyHUD() {
-  const { sessionId, sessionsHistory, refreshSessions } = useSessionContext()
+  const { sessionId, sessionsHistory, refreshSessions, activeModule } = useSessionContext()
   const [isProcessing, setIsProcessing] = useState(false)
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
@@ -76,36 +77,45 @@ export function SafetyHUD() {
     <DashboardLayout>
       <div className="flex items-center justify-between mb-8">
          <h1 className="text-2xl font-bold tracking-tight text-slate-900 truncate mr-4">
-            {patient ? `Safety Check - ${patient.name}` : "New Safety Check"}
+            {activeModule === 'drug-operations' 
+                ? "Drug Operations Center" 
+                : (patient ? `Safety Check - ${patient.name}` : "New Safety Check")
+            }
          </h1>
          <div className="flex-shrink-0">
             <Header /> 
          </div>
       </div>
 
-      <div className="h-[calc(100vh-9rem)] grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* MAIN CHAT AREA (3 Cols) */}
-        <div className="lg:col-span-3 h-full overflow-hidden">
-            <SafetyChat 
-                sessionId={sessionId}
-                verdict={verdict} 
-                isProcessing={isProcessing} 
-                onProcess={handleProcess} 
-                assistantResponse={assistantResponse}
-                onResponseShown={() => setAssistantResponse(null)}
-            />
+      {activeModule === 'drug-operations' ? (
+        <div className="h-[calc(100vh-9rem)] overflow-y-auto">
+            <DrugOperationsModule />
         </div>
+      ) : (
+        <div className="h-[calc(100vh-9rem)] grid grid-cols-1 lg:grid-cols-4 gap-6">
+            {/* MAIN CHAT AREA (3 Cols) */}
+            <div className="lg:col-span-3 h-full overflow-hidden">
+                <SafetyChat 
+                    sessionId={sessionId}
+                    verdict={verdict} 
+                    isProcessing={isProcessing} 
+                    onProcess={handleProcess} 
+                    assistantResponse={assistantResponse}
+                    onResponseShown={() => setAssistantResponse(null)}
+                />
+            </div>
 
-        {/* SIDEBAR PROFILE (1 Col) */}
-        <div className="lg:col-span-1 h-full overflow-y-auto">
-            <PatientForm 
-                key={patient ? patient.id : 'new'} 
-                initialPatient={patient} 
-                onSave={setPatient} 
-                className="h-full" 
-            />
+            {/* SIDEBAR PROFILE (1 Col) */}
+            <div className="lg:col-span-1 h-full overflow-y-auto">
+                <PatientForm 
+                    key={patient ? patient.id : 'new'} 
+                    initialPatient={patient} 
+                    onSave={setPatient} 
+                    className="h-full" 
+                />
+            </div>
         </div>
-      </div>
+      )}
     </DashboardLayout>
   )
 }
