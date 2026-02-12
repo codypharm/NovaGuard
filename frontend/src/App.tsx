@@ -3,6 +3,7 @@ import { SessionProvider } from "@/context/SessionContext"
 import { Toaster } from "@/components/ui/sonner"
 import { ClerkProvider, SignedIn, SignedOut, useAuth } from "@clerk/clerk-react"
 import LoginPage from "@/pages/LoginPage"
+import LandingPage from "@/pages/LandingPage"
 import { setTokenProvider } from "@/services/api"
 import { Routes, Route } from "react-router-dom"
 import { useEffect } from "react"
@@ -39,20 +40,28 @@ function App() {
         }
       }}
     >
-      <SignedIn>
-        <TokenSync>
-            <SessionProvider>
-            <Routes>
-                <Route path="/" element={<SafetyHUD />} />
-                <Route path="/login" element={<LoginPage />} />
-            </Routes>
-            <Toaster />
-            </SessionProvider>
-        </TokenSync>
-      </SignedIn>
-      <SignedOut>
-        <LoginPage />
-      </SignedOut>
+      <Routes>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route 
+            path="/workbench" 
+            element={
+              <>
+                <SignedIn>
+                  <TokenSync>
+                    <SessionProvider>
+                      <SafetyHUD />
+                      <Toaster />
+                    </SessionProvider>
+                  </TokenSync>
+                </SignedIn>
+                <SignedOut>
+                  <LoginPage />
+                </SignedOut>
+              </>
+            } 
+          />
+      </Routes>
     </ClerkProvider>
   )
 }

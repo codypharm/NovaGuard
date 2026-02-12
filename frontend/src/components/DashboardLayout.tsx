@@ -1,4 +1,6 @@
 import { Sidebar } from '@/components/Sidebar'
+import { ShieldCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -9,10 +11,12 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     <div className="min-h-screen bg-zinc-50 font-sans text-slate-900 flex">
       {/* Sidebar - Hidden on mobile, fixed on desktop */}
       <aside className="hidden w-64 flex-col md:flex fixed inset-y-0 z-50 bg-white border-r">
-        <div className="h-16 flex items-center px-6 border-b bg-white">
-             <div className="h-8 w-8 rounded bg-teal-600 mr-2"></div>
-             <span className="font-bold text-lg">Nova Guard</span>
-        </div>
+        <Link to="/" className="h-16 flex items-center px-6 border-b bg-white">
+             <div className="h-8 w-8 rounded-lg bg-teal-600 flex items-center justify-center text-white shadow-lg shadow-teal-500/20 mr-2">
+                <ShieldCheck className="w-5 h-5" />
+             </div>
+             <span className="text-xl font-black tracking-tighter text-slate-900 uppercase italic">Nova Guard</span>
+        </Link>
         <Sidebar className="flex-1" />
       </aside>
 

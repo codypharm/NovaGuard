@@ -66,11 +66,36 @@
   }
 }
  
-@layer base {
-  * {
-    @apply border-border;
+@layer utilities {
+  .font-clinical {
+    /* Using a high-end serif stack for clinical authority */
+    font-family: 'Charter', 'Bitstream Charter', 'Sitka Text', 'Cambria', 'Georgia', serif;
   }
-  body {
-    @apply bg-background text-foreground;
+
+  .glass {
+    @apply bg-white/10 backdrop-blur-md border border-white/20 shadow-[0_8px_32px_0_rgba(31,38,135,0.07)];
+  }
+  
+  .med-card {
+    @apply bg-white border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.05)] hover:shadow-[0_22px_60px_rgba(0,0,0,0.08)] transition-all duration-500 rounded-[2rem];
+  }
+
+  .text-glow-teal {
+    text-shadow: 0 0 15px rgba(20, 184, 133, 0.4);
+  }
+
+  .animate-drift {
+    animation: drift 8s ease-in-out infinite;
+  }
+
+  @keyframes drift {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    33% { transform: translate(10px, -15px) rotate(1deg); }
+    66% { transform: translate(-5px, 10px) rotate(-1deg); }
+  }
+
+  @keyframes weightless {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-15px); }
   }
 }
