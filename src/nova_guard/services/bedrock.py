@@ -2,7 +2,7 @@ import json
 import base64
 import boto3
 import os
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from botocore.exceptions import ClientError
 from openai import OpenAI
 
@@ -204,17 +204,31 @@ class BedrockClient:
             print(f"❌ Interactions Error: {e}")
             return "Unable to analyze interactions at this time."
 
-    async def get_safety_and_counseling(self, drug_name: str) -> str:
-        """Generates the At-A-Glance Matrix and Patient Counseling Card."""
+    async def get_safety_and_counseling(self, medications: List[Any]) -> str:
+        """Generates a high-contrast clinical safety matrix and patient counseling for a regimen."""
         if not self.openai_client: return "{}"
 
+        med_details = ""
+        med_names = []
+        for med in medications:
+            name = getattr(med, 'name', med.get('name', 'Unknown'))
+            dosage = getattr(med, 'dosage', med.get('dosage', 'Not specified'))
+            duration = getattr(med, 'duration', med.get('duration', 'Not specified'))
+            med_details += f"\n- **{name}**: {dosage} ({duration})"
+            med_names.append(name)
+
+        drug_list_str = ", ".join(med_names)
+
         prompt = f"""
-        # Clinical Safety Profile: {drug_name}
+        # Clinical Regimen Safety Profile: {drug_list_str}
         
-        Include:
-        1. **Safety Matrix**: (Pregnancy, Lactation, Geriatric, Pediatric) with risk levels.
-        2. **Patient Counseling**: 3 critical focus points.
-        3. **Black Box Warning**: Current FDA status.
+        **Medication Details:**
+        {med_details}
+        
+        Provide a comprehensive assessment including:
+        1. **Cumulative Safety Matrix**: (Pregnancy, Lactation, Geriatric, Pediatric) risk levels for the entire regimen.
+        2. **Integrated Patient Counseling**: 3-5 critical focus points tailored to these specific dosages and durations. Consider combined risks or administrative timing.
+        3. **Black Box Warnings**: Relevant FDA warnings for any drugs in the list.
         
         Return a clean Markdown report with headers and bold highlights.
         """

@@ -58,6 +58,6 @@ class ClinicalTools:
     # ========================================================================
     # 4. SAFETY MATRIX & COUNSELING (Nova Pro)
     # ========================================================================
-    async def generate_safety_and_counseling(self, drug_name: str) -> str:
+    async def generate_safety_and_counseling(self, drug_name: str, dosage: str = None, duration: str = None) -> str:
         """Generates the At-A-Glance Matrix and Patient Counseling Card."""
-        return await self.bedrock.get_safety_and_counseling(drug_name)
+        return await self.bedrock.get_safety_and_counseling(drug_name, dosage, duration)

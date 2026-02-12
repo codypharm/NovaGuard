@@ -1,7 +1,7 @@
 """FastAPI application entry point."""
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List, Dict, Any
 import os
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
@@ -467,6 +467,14 @@ class CrClRequest(BaseModel):
 class InteractionRequest(BaseModel):
     drugs: list[str]
 
+class MedicationItem(BaseModel):
+    name: str
+    dosage: Optional[str] = None
+    duration: Optional[str] = None
+
+class SafetyRequest(BaseModel):
+    medications: List[MedicationItem]
+
 @app.post("/clinical/calculate-crcl")
 async def calculate_crcl(data: CrClRequest):
     """Calculate Creatinine Clearance with AI recommendations."""
@@ -484,7 +492,7 @@ async def get_substitutions(drug_name: str):
     """Get therapeutic equivalents (Markdown)."""
     return await clinical_service.get_equivalents(drug_name)
 
-@app.get("/clinical/safety-profile/{drug_name}")
-async def get_safety_profile(drug_name: str):
-    """Get safety matrix and counseling (Markdown)."""
-    return await clinical_service.generate_safety_and_counseling(drug_name)
+@app.post("/clinical/safety-profile")
+async def get_safety_profile(request: SafetyRequest):
+    """Get safety matrix and counseling (Markdown) for a complete medication regimen."""
+    return await clinical_service.generate_safety_and_counseling(request.medications)

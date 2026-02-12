@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Search, Calculator, Shuffle, ShieldCheck, TestTube, Scale, User, Activity, Info } from 'lucide-react'
+import { Search, Calculator, Shuffle, ShieldCheck, TestTube, Scale, User, Activity, Info, Trash2, Plus } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Input } from "@/components/ui/input"
@@ -354,29 +354,53 @@ const SubstitutionTable = () => {
     )
 }
 
+interface MedicationEntry {
+    name: string;
+    dosage: string;
+    duration: string;
+}
+
 /**
  * DrugOperationsModule
  * Extracted from DrugOperationsPage and refactored for integration within SafetyHUD.
  */
 export default function DrugOperationsModule() {
-    const [searchQuery, setSearchQuery] = useState("")
+    const [meds, setMeds] = useState<MedicationEntry[]>([{ name: "", dosage: "", duration: "" }])
     const [drugData, setDrugData] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
 
+    const addMed = () => setMeds([...meds, { name: "", dosage: "", duration: "" }])
+    const removeMed = (index: number) => {
+        if (meds.length > 1) {
+            setMeds(meds.filter((_, i) => i !== index))
+        }
+    }
+
+    const updateMed = (index: number, field: keyof MedicationEntry, value: string) => {
+        const newMeds = [...meds]
+        newMeds[index][field] = value
+        setMeds(newMeds)
+    }
+
     const handleSearch = async (e: React.FormEvent) => {
         e.preventDefault()
-        if (!searchQuery.trim()) return
+        const validMeds = meds.filter(m => m.name.trim() !== "")
+        if (validMeds.length === 0) return
 
         setLoading(true)
         try {
-            const res = await fetch(`http://localhost:8000/clinical/safety-profile/${searchQuery}`)
+            const res = await fetch(`http://localhost:8000/clinical/safety-profile`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ medications: validMeds })
+            })
             if (res.ok) {
                 const data = await res.json()
                 setDrugData(data) 
             }
         } catch (err) {
             console.error("Search failed", err)
-            toast.error("Failed to fetch safety profile")
+            toast.error("Failed to generate clinical assessment")
         } finally {
             setLoading(false)
         }
@@ -386,20 +410,108 @@ export default function DrugOperationsModule() {
         <div className="flex flex-col space-y-8 pb-12">
             {/* Search Area - More prominent clinical search */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">Clinical Database Search</h3>
-                <form onSubmit={handleSearch} className="flex gap-3">
-                    <div className="relative flex-1 group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 w-5 h-5 group-focus-within:text-teal-600 transition-colors" />
-                        <Input 
-                            placeholder="Enter drug name (e.g. Warfarin, Lisinopril)..." 
-                            className="pl-11 h-14 text-lg border-slate-200 focus:border-teal-500 focus:ring-teal-500 rounded-lg bg-slate-50/50"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                        />
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h3 className="text-sm font-semibold text-slate-900 uppercase tracking-wider">Regimen Safety Assessment</h3>
+                        <p className="text-xs text-slate-500 mt-1">Generate comprehensive counseling for a complete medication protocol.</p>
                     </div>
-                    <Button type="submit" size="lg" disabled={loading} className="h-14 px-8 bg-teal-600 hover:bg-teal-700 text-white font-semibold rounded-lg shadow-sm transition-all active:scale-95">
-                        {loading ? "Analyzing..." : "Analyze Safety Profile"}
-                    </Button>
+                </div>
+                
+                <form onSubmit={handleSearch} className="space-y-6">
+                    <div className="space-y-4">
+                        {meds.map((med, index) => (
+                            <div key={index} className="grid grid-cols-12 gap-3 items-end group animate-in slide-in-from-left-2 duration-200">
+                                <div className="col-span-12 lg:col-span-5 space-y-2">
+                                    {index === 0 && <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Drug Name</Label>}
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-teal-600 transition-colors" />
+                                        <Input 
+                                            placeholder="e.g. Warfarin..." 
+                                            value={med.name}
+                                            onChange={(e) => updateMed(index, 'name', e.target.value)}
+                                            className="pl-10 h-11 border-slate-200 focus:border-teal-500 focus:ring-teal-500 bg-slate-50/50"
+                                        />
+                                    </div>
+                                </div>
+                                <div className="col-span-5 lg:col-span-3 space-y-2">
+                                    {index === 0 && <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Dosage</Label>}
+                                    <Input 
+                                        placeholder="e.g. 5mg" 
+                                        value={med.dosage}
+                                        onChange={(e) => updateMed(index, 'dosage', e.target.value)}
+                                        className="h-11 border-slate-200 focus:border-teal-500 bg-slate-50/50"
+                                    />
+                                </div>
+                                <div className="col-span-5 lg:col-span-3 space-y-2">
+                                    {index === 0 && <Label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest ml-1">Frequency</Label>}
+                                    <Input 
+                                        placeholder="e.g. Daily" 
+                                        value={med.duration}
+                                        onChange={(e) => updateMed(index, 'duration', e.target.value)}
+                                        className="h-11 border-slate-200 focus:border-teal-500 bg-slate-50/50"
+                                    />
+                                </div>
+                                <div className="col-span-2 lg:col-span-1 pb-1">
+                                    <Button 
+                                        type="button" 
+                                        variant="ghost" 
+                                        size="icon"
+                                        onClick={() => removeMed(index)}
+                                        className="text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all"
+                                        disabled={meds.length === 1}
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                        <Button 
+                            type="button" 
+                            variant="outline" 
+                            onClick={addMed}
+                            className="h-12 px-6 border-dashed border-slate-200 text-slate-500 hover:text-teal-600 hover:border-teal-200 hover:bg-teal-50 font-bold rounded-lg transition-all"
+                        >
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Medication
+                        </Button>
+                        
+                        <div className="flex-1" />
+                        
+                        <div className="flex gap-2">
+                            <Button 
+                                type="submit" 
+                                size="lg" 
+                                disabled={loading} 
+                                className={`h-12 px-8 font-semibold rounded-lg shadow-sm transition-all active:scale-95 ${
+                                    drugData ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-teal-600 hover:bg-teal-700 text-white'
+                                }`}
+                            >
+                                {loading ? (
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                        Analyzing Regimen...
+                                    </div>
+                                ) : drugData ? "Update Assessment" : "Generate Clinical Assessment"}
+                            </Button>
+                            
+                            {drugData && (
+                                <Button 
+                                    type="button"
+                                    onClick={() => {
+                                        setDrugData(null);
+                                        setMeds([{ name: "", dosage: "", duration: "" }]);
+                                    }} 
+                                    variant="outline" 
+                                    className="h-12 px-6 border-slate-200 text-slate-500 hover:text-rose-600 hover:border-rose-200 hover:bg-rose-50 font-bold rounded-lg transition-all shadow-sm"
+                                >
+                                    Clear
+                                </Button>
+                            )}
+                        </div>
+                    </div>
                 </form>
 
                 {/* Suggestions / Recent */}
@@ -409,7 +521,14 @@ export default function DrugOperationsModule() {
                         {["Warfarin", "Lisinopril", "Atorvastatin", "Metformin"].map(drug => (
                             <button 
                                 key={drug}
-                                onClick={() => setSearchQuery(drug)}
+                                onClick={() => {
+                                    const emptyIndex = meds.findIndex(m => m.name === "");
+                                    if (emptyIndex !== -1) {
+                                        updateMed(emptyIndex, 'name', drug);
+                                    } else {
+                                        setMeds([...meds, { name: drug, dosage: "", duration: "" }]);
+                                    }
+                                }}
                                 className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600 hover:bg-teal-50 hover:text-teal-700 transition-colors whitespace-nowrap border border-slate-200"
                             >
                                 {drug}
@@ -427,8 +546,10 @@ export default function DrugOperationsModule() {
                             <ShieldCheck className="w-6 h-6" />
                         </div>
                         <div>
-                            <h2 className="text-2xl font-bold text-slate-900 capitalize">{searchQuery}</h2>
-                            <p className="text-sm text-slate-500 uppercase tracking-widest font-medium">Comprehensive Clinical Safety Report</p>
+                            <h2 className="text-2xl font-bold text-slate-900 capitalize">
+                                {meds.filter(m => m.name).map(m => m.name).join(", ")}
+                            </h2>
+                            <p className="text-sm text-slate-500 uppercase tracking-widest font-medium">Comprehensive Regimen Safety Report</p>
                         </div>
                     </div>
                     
