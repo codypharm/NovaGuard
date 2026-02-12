@@ -21,6 +21,7 @@ export function Sidebar({ className }: SidebarProps) {
   const { sessionId, sessionsHistory, createNewSession, switchSession, loading, deleteSession } = useSessionContext()
 
   const handleNewSession = async () => {
+      console.log("🖱️ Sidebar: handleNewSession clicked")
       await createNewSession()
   }
 

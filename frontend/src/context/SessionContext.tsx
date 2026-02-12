@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { getSessions, createSession as apiCreateSession, deleteSession as apiDeleteSession, type Session } from '@/services/api'
+import { getSessions, createSession as apiCreateSession, deleteSession as apiDeleteSession, type Session, setTokenProvider } from '@/services/api'
+import { useAuth } from '@clerk/clerk-react'
 
 interface SessionContextType {
     sessionId: string
@@ -19,8 +20,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const [sessionsHistory, setSessionsHistory] = useState<Session[]>([])
     const [loading, setLoading] = useState(false)
 
+    const { isLoaded, userId, getToken } = useAuth()
+    const initialized = React.useRef(false)
+
     // Initial Load
     useEffect(() => {
+        if (!isLoaded || !userId) return
+        
+        // Ensure the token provider in api.ts is set before we fetch
+        // (Double safety, though TokenSync in App.tsx should handle it)
+        setTokenProvider(getToken)
+
+        if (initialized.current) return
+        initialized.current = true
+
         const init = async () => {
              const sessions = await refreshSessions() || []
              
@@ -34,8 +47,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
              }
 
              // Validate ID against user's session list
-             // If the ID from localStorage isn't in the user's list, it might be stale or belong to another user.
-             // We default to the most recent session, or create a new one.
+             let shouldCreate = false
              const isValid = id && sessions.some(s => s.id === id)
              
              if (!isValid) {
@@ -45,19 +57,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
                  } else {
                      // No sessions exist, create new
                      id = uuidv4()
+                     shouldCreate = true
                  }
              }
              
              // Set state
-             if (id) switchSession(id, false)
+             if (id) {
+                 switchSession(id, false)
+                 if (shouldCreate) {
+                     apiCreateSession(id).catch(err => console.error("Session init creation failed", err))
+                 }
+             }
         }
         init()
-    }, [])
+    }, [isLoaded, userId, getToken])
 
     const refreshSessions = async () => {
         try {
             setLoading(true)
+            console.log("📥 SessionContext: refreshSessions called")
             const data = await getSessions()
+            console.log("📥 SessionContext: getSessions returned", data.length, "sessions", data)
             setSessionsHistory(data)
             return data
         } catch (err) {
@@ -69,6 +89,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
 
     const switchSession = (id: string, updateUrl = true) => {
+        console.log(`🔄 SessionContext: switchSession to ${id} (updateUrl: ${updateUrl})`)
         setSessionId(id)
         localStorage.setItem("nova_session_id", id)
 
@@ -77,31 +98,47 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
             newUrl.searchParams.set("session", id)
             window.history.pushState({}, "", newUrl.toString())
         }
-        
-        // Ensure backend knows about it (if new)
-        // Optimization: checking specific format or if it's in history might save a call, 
-        // but `apiCreateSession` is idempotent logic usually.
-        apiCreateSession(id).catch(err => console.error("Session init warning", err))
     }
 
+    const isCreatingRef = React.useRef(false)
+
     const createNewSession = async () => {
+        if (isCreatingRef.current) {
+            console.warn("⚠️ createNewSession blocked: already in progress")
+            return ""
+        }
+        isCreatingRef.current = true
+        console.log("✨ SessionContext: createNewSession START")
+        
         const newId = uuidv4()
         
-        // Optimistic update
-        const newSession: Session = {
-            id: newId,
-            title: "New Session",
-            updated_at: new Date().toISOString()
-        }
-        
-        setSessionsHistory(prev => [newSession, ...prev])
-        switchSession(newId)
-        
         try {
+            console.log("📡 API: Calling apiCreateSession", newId)
             await apiCreateSession(newId)
-            await refreshSessions() // Get server truth
+            
+            // Switch session first to ensure UI feels responsive
+            switchSession(newId)
+            
+            // Wait slightly before refreshing to ensure DB consistency
+            // (Postgres commit latency might be >0ms if under load)
+            // await new Promise(r => setTimeout(r, 100))
+            
+            // Fetch updated list from server
+            const updatedSessions = await refreshSessions()
+            
+            // Verify if the session was actually added (server-side consistency)
+            if (!updatedSessions.some(s => s.id === newId)) {
+                console.warn("⚠️ Session created but not returned by list API yet")
+                // Manually append only if server didn't return it yet (rare race)
+                setSessionsHistory(prev => [
+                    { id: newId, title: "New Session", updated_at: new Date().toISOString() }, 
+                    ...prev
+                ])
+            }
         } catch (err) {
             console.error("Failed to create session on server", err)
+        } finally {
+            isCreatingRef.current = false
         }
         
         return newId
@@ -109,24 +146,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const deleteSession = async (id: string) => {
         try {
-            // Optimistic update
-            setSessionsHistory(prev => prev.filter(s => s.id !== id))
+            // 1. Delete on server first to ensure consistency
+            await apiDeleteSession(id)
+
+            // 2. Filter local state
+            const remaining = sessionsHistory.filter(s => s.id !== id)
+            setSessionsHistory(remaining)
             
-            // If deleting current session, switch to another
+            // 3. Handle active session switch
             if (sessionId === id) {
-               const remaining = sessionsHistory.filter(s => s.id !== id)
                if (remaining.length > 0) {
                    switchSession(remaining[0].id)
                } else {
-                   // Create new session if none left
+                   // No sessions left -> Create new one
+                   // Since delete is done, createNewSession -> refreshSessions will be clean
                    await createNewSession()
                }
+            } else {
+                // Just refresh to be sure
+                await refreshSessions()
             }
 
-            await apiDeleteSession(id)
         } catch (err) {
             console.error("Failed to delete session", err)
-            // Revert on failure? Ideally yes, but for now simple log.
             await refreshSessions()
         }
     }
