@@ -1,48 +1,48 @@
 # Nova Clinical Guard
 
-> **Mission**: Eliminate transcription errors and improve patient safety using Amazon Nova 2026 AI suite.
+> **Mission**: Eliminate prescription errors and improve patient safety using the Amazon Nova 2026 AI suite and multi-layered clinical audit workflows.
 
-## Overview
+## 🚀 Overview
 
-Nova Clinical Guard is a failsafe clinical layer that digitizes "dirty" medical data (handwritten scripts) and performs intelligent safety audits against a patient's unique medical history.
+Nova Clinical Guard is a professional-grade clinical safety platform designed for pharmacists and clinicians. It transforms "dirty" medical data (handwritten scripts, fragments) into structured clinical wisdom, performing real-time audits against a patient's unique history and the latest FDA consensus.
 
-## Features
+## ✨ Core Features
 
-### 🔍 Multimodal Ingestion
-- **Image**: OCR handwritten prescriptions with Nova 2 Lite
-- **Text**: Parse typed prescription data
-- **Voice**: Speech-to-text with Nova 2 Sonic
+### 🏦 Safety HUD & Multimodal Ingestion
+- **Intelligent Ingestion**: OCR handwritten prescriptions via Nova 2 Lite, typed data parsing, and high-fidelity extraction.
+- **Agentic Orchestration**: LangGraph-powered state machines ensure no prescription is cleared without passing a multi-point safety check.
+- **Human-in-the-Loop**: Seamless confirmation UI for AI extractions before they hit the patient record.
 
-### 🗄️ Persistent Patient Context
-- Secure PostgreSQL database of patient records
-- Drug history timeline
-- Allergy registry (drug/environmental/contact)
-- Adverse reaction tracking
+### 💊 Drug Operations Module (2026 Pro)
+A specialized dashboard for rapid clinical decision support:
+- **Regimen Safety Assessment**: Multi-drug analysis that considers cumulative risks, individual dosages, and durations for a complete patient profile.
+- **Interaction Sandbox**: Detailed **CYP450 metabolism insights** and drug-drug interaction matrices formatted in high-fidelity Markdown.
+- **Clinical Dose Calculator**: AI-enhanced Cockcroft-Gault calculations with automatic AdjBW/IBW selection and FDA-mapped renal adjustment recommendations.
+- **Substitution Engine**: Rapid lookup of therapeutic equivalents and 2026 interchangeable biosimilars for formulary management.
 
-### 🛡️ Comprehensive Safety Checks (16+ via OpenFDA)
-- ⚠️ Boxed warnings (Black Box)
-- ⛔ Contraindications
-- 💊 Drug interactions
-- 🤰 Pregnancy & nursing safety
-- 👶 Pediatric dosing
-- 👴 Geriatric considerations
-- 🧪 Renal/hepatic adjustments
-- And more...
+### 🗄️ Clinical Context & Safety Matrix
+- **Persistent Patient Profiles**: Secure PostgreSQL storage of allergies, adverse reactions, and medication history.
+- **At-A-Glance Safety Matrix**: Visual consensus reports for Pregnancy, Lactation, Geriatric, and Pediatric populations.
+- **Black Box Monitoring**: Real-time FDA status tracking and critical patient counseling generation.
 
-### 🤖 Agentic Orchestration
-- LangGraph state machine ensures no prescription is cleared without database check
-- Human-in-the-Loop confirmation for all extractions
-- Color-coded safety verdicts (Green/Yellow/Red)
+## 🛠️ Technical Stack
 
-## Quick Start
+### Backend (FastAPI & AI)
+- **Engine**: Python 3.11+ / FastAPI
+- **Orchestration**: LangGraph (Stateful Multi-Agent Workflows)
+- **AI**: Amazon Nova (via Bedrock) & OpenAI
+- **Database**: PostgreSQL with SQLAlchemy (Async)
+- **Clinical Data**: OpenFDA API integration
 
-### Prerequisites
-- Python 3.11+
-- PostgreSQL 14+
-- [uv](https://github.com/astral-sh/uv) package manager
+### Frontend (React & UX)
+- **Framework**: Vite / React 18+ / TypeScript
+- **Styling**: Tailwind CSS (Shadcn UI)
+- **Auth**: Clerk (Unified Clinical Identity)
+- **Reports**: Markdown-based rendering with custom clinical typography
 
-### Installation
+## 🚦 Quick Start
 
+### Backend Setup
 ```bash
 # Clone the repository
 git clone <repo-url>
@@ -53,37 +53,27 @@ uv sync
 
 # Setup environment
 cp .env.example .env
-# Edit .env with your PostgreSQL credentials
+# Edit .env with your keys (AWS_REGION, DATABASE_URL, VITE_CLERK_PUBLISHABLE_KEY)
 
-# Run database migrations
+# Initial DB migration
 uv run alembic upgrade head
 
-# Start the API server
+# Start API
 uv run uvicorn src.nova_guard.main:app --reload
 ```
 
-## Project Structure
-
-```
-nova-guard/
-├── src/nova_guard/
-│   ├── api/              # FastAPI endpoints
-│   ├── models/           # SQLAlchemy models
-│   ├── schemas/          # Pydantic schemas
-│   ├── services/         # Business logic (OpenFDA, etc.)
-│   ├── graph/            # LangGraph nodes & workflows
-│   └── main.py           # FastAPI app
-├── tests/                # Pytest test suite
-├── alembic/              # Database migrations
-└── pyproject.toml        # Project config
+### Frontend Setup
+```bash
+cd frontend
+bun install
+bun dev
 ```
 
-## Development Roadmap
+## 🗺️ Roadmap
+- [x] **Phase 1**: Clinical Core (FastAPI + LangGraph + PostgreSQL)
+- [x] **Phase 2**: Clinical Decision Support (Drug Ops Module, Markdown Reports)
+- [x] **Phase 3**: Unified Identity (Clerk Integration, Sidebar Sync)
+- [ ] **Phase 4**: Voice Integration (Nova 2 Sonic for hands-free consultations)
 
-- [x] Phase 1: The Local Core (FastAPI + LangGraph + PostgreSQL)
-- [ ] Phase 2: The AWS Leap (Bedrock, Aurora, Fargate)
-- [ ] Phase 3: The Superpowers (Sonic Voice, Act Automation)
-
-## License
-
+## ⚖️ License
 MIT
