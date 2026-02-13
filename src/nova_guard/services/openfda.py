@@ -1,11 +1,15 @@
 """OpenFDA API client for comprehensive drug safety checks."""
 
+import logging
 import httpx
 from typing import Optional, List
 from datetime import datetime
 
 from nova_guard.config import settings
 from nova_guard.schemas.patient import SafetyFlag
+from nova_guard.services.cache import cached_openfda
+
+logger = logging.getLogger(__name__)
 
 
 class OpenFDAClient:
@@ -21,6 +25,7 @@ class OpenFDAClient:
         """Close the HTTP client."""
         await self.client.aclose()
     
+    @cached_openfda
     async def get_drug_label(self, drug_name: str) -> Optional[dict]:
         """
         Fetch drug label from OpenFDA.
@@ -45,7 +50,7 @@ class OpenFDAClient:
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                print(f"⚠️ Exact match failed for '{drug_name}', trying fuzzy search...")
+                logger.debug("Exact match failed for '%s', trying fuzzy search", drug_name)
                 # 2. Fallback to Fuzzy Match (no quotes on fields)
                 try:
                     params["search"] = f'openfda.brand_name:{drug_name} OR openfda.generic_name:{drug_name}'
@@ -55,7 +60,7 @@ class OpenFDAClient:
                     if data.get("results"):
                         return data["results"][0]
                 except Exception as e2:
-                    print(f"⚠️ Fuzzy search failed for '{drug_name}', trying global search...")
+                    logger.debug("Fuzzy search failed for '%s', trying global search", drug_name)
                     # 3. Last Resort: Global Search (any field contains the name)
                     try:
                         params["search"] = f'"{drug_name}"'
@@ -65,13 +70,13 @@ class OpenFDAClient:
                         if data.get("results"):
                             return data["results"][0]
                     except Exception as e3:
-                         print(f"❌ Global search also failed: {e3}")
+                         logger.warning("All OpenFDA searches failed for '%s': %s", drug_name, e3)
                          return None
             
-            print(f"❌ OpenFDA API error: {e}")
+            logger.error("OpenFDA API error for '%s': %s", drug_name, e)
             return None
         except Exception as e:
-            print(f"❌ Unexpected error: {e}")
+            logger.error("Unexpected OpenFDA error for '%s': %s", drug_name, e)
             return None
     
     def _extract_field(self, label: dict, field: str) -> Optional[str]:
@@ -211,7 +216,7 @@ class OpenFDAClient:
                 ))
                 
         except Exception as e:
-            print(f"⚠️ Recall check failed: {e}")
+            logger.warning("Recall check failed for '%s': %s", drug_name, e)
             
         return flags
 
@@ -418,7 +423,7 @@ class OpenFDAClient:
         
         all_flags = []
         
-        print(f"💊 Running Advanced Safety Checks for: {drug_name}")
+        logger.info("Running advanced safety checks for: %s", drug_name)
         
         # Step 0: Check Recalls (Independent of Label)
         all_flags.extend(await self.check_drug_recall(drug_name))
@@ -445,12 +450,12 @@ class OpenFDAClient:
                     citation=rxnorm_citation
                 ))
         except Exception as e:
-            print(f"⚠️ RxNorm normalization failed: {e}")
+            logger.warning("RxNorm normalization failed for '%s': %s", drug_name, e)
         
         # Step 2: Fetch OpenFDA Label ONCE
         label = await self.get_drug_label(check_name)
         if not label:
-            print(f"⚠️ No OpenFDA label found for '{check_name}'")
+            logger.warning("No OpenFDA label found for '%s'", check_name)
             return all_flags
             
         # Step 2b: Verify Label Match (Avoid False Positives from Global Search)
@@ -514,7 +519,7 @@ class OpenFDAClient:
         if egfr:
             all_flags.extend(await self.check_renal_dosing(label, citation, float(egfr)))
         
-        print(f"✅ Advanced checks complete: {len(all_flags)} flag(s) found")
+        logger.info("Safety checks complete for '%s': %d flag(s)", drug_name, len(all_flags))
         
         return all_flags
 

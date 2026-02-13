@@ -2,6 +2,7 @@
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator, Optional, List, Dict, Any
+import logging
 import os
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
@@ -36,7 +37,7 @@ from nova_guard.graph.workflow import create_prescription_workflow
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator:
-    print("🚀 Nova Clinical Guard starting up...")
+    logging.getLogger(__name__).info("Nova Clinical Guard starting up")
 
     try:
         # Read directly from environment variable
@@ -55,27 +56,28 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
             if ":" in credentials:
                 user = credentials.split(":")[0]
                 masked = conn_string.replace(credentials, f"{user}:***")
-                print(f"Checkpointer connection string (masked): {masked}")
+                logging.getLogger(__name__).info("Checkpointer connection: %s", masked)
         
         async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
-            print("📥 Initializing Workflow with Postgres Persistence...")
+            logging.getLogger(__name__).info("Initializing workflow with Postgres persistence")
             app.state.prescription_workflow = create_prescription_workflow(checkpointer)
             
             await checkpointer.setup()
             
-            print("🗄️ Ensuring Database Tables...")
+            logging.getLogger(__name__).info("Ensuring database tables")
             from nova_guard.database import Base
+            import nova_guard.models.audit  # noqa: F401 — register AuditLog table
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
             yield
 
     except Exception as exc:
-        print(f"❌ Lifespan startup failed: {exc}")
+        logging.getLogger(__name__).error("Lifespan startup failed: %s", exc)
         raise
 
     finally:
-        print("👋 Nova Clinical Guard shutting down...")
+        logging.getLogger(__name__).info("Nova Clinical Guard shutting down")
 
 app = FastAPI(
     title="Nova Clinical Guard",
@@ -287,6 +289,15 @@ async def process_clinical_interaction(
     # 4. Execution Config
     config = {"configurable": {"thread_id": session_id}}
     
+    result = None
+    last_msg = None
+
+    # Helper to extract string from message
+    def get_msg_content(msg):
+        if hasattr(msg, "content"): return msg.content
+        if isinstance(msg, dict): return msg.get("content", str(msg))
+        return str(msg)
+
     try:
         # Initial invocation triggers the Gateway Supervisor
         workflow = request.app.state.prescription_workflow
@@ -303,14 +314,8 @@ async def process_clinical_interaction(
                 "extracted_data": result.get("extracted_data"),
                 "intent": result.get("intent")
             }
-             
-        # Helper to extract string from message
-        def get_msg_content(msg):
-            if hasattr(msg, "content"): return msg.content
-            if isinstance(msg, dict): return msg.get("content", str(msg))
-            return str(msg)
 
-        last_msg = result.get("messages")[-1] if result.get("messages") else None
+        last_msg = result.get("messages", [])[-1] if result.get("messages") else None
         
         return {
             "status": "completed",
@@ -321,8 +326,32 @@ async def process_clinical_interaction(
         }
 
     except Exception as e:
-        print(f"❌ Workflow Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logging.getLogger(__name__).error("Workflow failed for session %s: %s", session_id, e)
+        return {
+            "status": "error",
+            "error_code": "WORKFLOW_ERROR",
+            "message": "Something went wrong processing your request. Please try again.",
+            "detail": str(e) if os.getenv("ENVIRONMENT") == "development" else None,
+        }
+    finally:
+        # Non-blocking audit log — never fails the user request
+        try:
+            from nova_guard.services.audit_service import log_interaction
+            resp_text = get_msg_content(last_msg)[:500] if last_msg else None
+            verdict_obj = result.get("verdict") if result else None
+            await log_interaction(
+                db,
+                session_id=session_id,
+                user_id=current_user.id,
+                action="clinical_interaction",
+                intent=result.get("intent") if result else None,
+                query=(prescription_text or "")[:500],
+                response_summary=resp_text,
+                verdict_status=verdict_obj.get("status") if isinstance(verdict_obj, dict) else None,
+                flag_count=len(result.get("safety_flags", [])) if result else 0,
+            )
+        except Exception:
+            pass  # Audit failure is never user-facing
 
 # ============================================================================
 # Session Endpoints
@@ -335,10 +364,9 @@ async def list_recent_sessions(
     current_user: User = Depends(get_current_user),
 ):
     """List recent sessions for sidebar."""
-    print(f"GET /sessions limit={limit}")
-    print(f"GET /sessions limit={limit} user={current_user.id}")
+    logging.getLogger(__name__).debug("GET /sessions limit=%d user=%s", limit, current_user.id)
     sessions = await session_crud.list_recent_sessions(db, current_user.id, limit=limit)
-    print(f"Found {len(sessions)} sessions")
+    logging.getLogger(__name__).debug("Found %d sessions", len(sessions))
     return sessions
 
 
@@ -442,7 +470,7 @@ async def get_session_history(
             
         return history
     except Exception as e:
-        print(f"Error fetching history: {e}")
+        logging.getLogger(__name__).error("Error fetching history: %s", e)
         return []
 
 # ============================================================================
@@ -496,3 +524,42 @@ async def get_substitutions(drug_name: str):
 async def get_safety_profile(request: SafetyRequest):
     """Get safety matrix and counseling (Markdown) for a complete medication regimen."""
     return await clinical_service.generate_safety_and_counseling(request.medications)
+
+
+# ============================================================================
+# Audit Log Endpoint
+# ============================================================================
+
+@app.get("/audit-log")
+async def get_audit_log(
+    session_id: Optional[str] = None,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Retrieve audit trail for the current user's clinical interactions."""
+    from sqlalchemy import select, desc
+    from nova_guard.models.audit import AuditLog
+
+    query = select(AuditLog).where(AuditLog.user_id == current_user.id)
+    if session_id:
+        query = query.where(AuditLog.session_id == session_id)
+    query = query.order_by(desc(AuditLog.created_at)).limit(limit)
+
+    result = await db.execute(query)
+    logs = result.scalars().all()
+
+    return [
+        {
+            "id": log.id,
+            "session_id": log.session_id,
+            "action": log.action,
+            "intent": log.intent,
+            "query": log.query,
+            "response_summary": log.response_summary,
+            "verdict_status": log.verdict_status,
+            "flag_count": log.flag_count,
+            "created_at": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in logs
+    ]

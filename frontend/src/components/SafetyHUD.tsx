@@ -48,8 +48,14 @@ export function SafetyHUD() {
         
         // Refresh session list to show updated title
         refreshSessions()
-        
-        // ... handle result ...
+
+        // Handle backend error status
+        if (result.status === 'error') {
+            setAssistantResponse(
+                `**⚠️ ${(result as any).message || 'Something went wrong.'}**\n\nPlease try again or rephrase your query.`
+            )
+            return
+        }
         
         // Handle Assistant Response & Verdict
         if (result.verdict) {
@@ -67,6 +73,9 @@ export function SafetyHUD() {
 
     } catch (err) {
         console.error("Analysis Failed", err)
+        setAssistantResponse(
+            "**⚠️ Connection Error**\n\nCould not reach the server. Please check your connection and try again."
+        )
     } finally {
         setIsProcessing(false)
     }

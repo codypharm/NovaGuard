@@ -1,11 +1,14 @@
 """LangGraph nodes for prescription processing workflow."""
 
 import re
+import logging
 from typing import Optional
 
 from nova_guard.graph.state import PatientState
 from nova_guard.schemas.patient import PrescriptionData
 from langchain_core.messages import AIMessage
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -16,7 +19,7 @@ from langchain_core.messages import AIMessage
 async def gateway_supervisor_node(state: PatientState) -> dict:
     from nova_guard.services.bedrock import bedrock_client
 
-    print("🌉 Gateway Supervisor: classifying intent...")
+    logger.info("Gateway Supervisor: classifying intent")
 
     text = state.get("prescription_text", "")
     has_image = state.get("prescription_image") is not None
@@ -66,9 +69,9 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
     clean_intent = intent_map.get(intent)
     if clean_intent is None:
         clean_intent = "GENERAL_CHAT"  # safest fallback
-        print(f"⚠️  Intent fallback → GENERAL_CHAT (raw: {raw_intent})")
+        logger.debug("Intent fallback -> GENERAL_CHAT (raw: %s)", raw_intent)
 
-    print(f"→ Intent: {clean_intent}")
+    logger.info("Intent: %s", clean_intent)
 
     return {
         "intent": clean_intent,
@@ -81,18 +84,18 @@ async def image_intake_node(state: PatientState) -> dict:
     """
     from nova_guard.services.bedrock import bedrock_client
     
-    print("📷 Image Intake: Processing prescription via Nova Lite...")
+    logger.info("Image intake: processing prescription via Nova Lite")
     image_bytes = state.get("prescription_image")
     
     if not image_bytes:
-        print("❌ Error: No image provided")
+        logger.error("No image provided for image intake")
         return {}
         
     extracted = await bedrock_client.process_image(image_bytes)
     
     if not extracted:
         # Fallback for Phase 2 if credentials fail
-        print("⚠️ Bedrock processing failed, falling back to mock (for demo continuity)")
+        logger.warning("Bedrock processing failed, falling back to mock")
         extracted = PrescriptionData(
             drug_name="Lisinopril",
             dose="10mg",
@@ -114,7 +117,7 @@ async def image_intake_node(state: PatientState) -> dict:
     }
 
 async def text_intake_node(state: PatientState) -> dict:
-    print("⌨️ Text intake node")
+    logger.info("Text intake node")
 
     text = state.get("prescription_text", "").strip()
     if not text:
@@ -237,7 +240,7 @@ async def text_intake_node(state: PatientState) -> dict:
             }
 
     except Exception as e:
-        print(f"LLM extraction failed: {e}")
+        logger.warning("LLM prescription extraction failed: %s", e)
     
     # Ultimate fallback if LLM fails
     return {
@@ -259,7 +262,7 @@ def voice_intake_node(state: PatientState) -> dict:
     2. Get speech-to-text transcription
     3. Parse the transcription
     """
-    print("🎤 Voice Intake: Processing voice prescription...")
+    logger.info("Voice intake: processing voice prescription")
     
     # Mock extraction (Phase 1)
     extracted = PrescriptionData(
@@ -293,7 +296,7 @@ def route_input(state: PatientState) -> str:
         # If we have text, we might need to parse parameters from it first
         if state.get("prescription_text"):
             return "text_intake"
-        print("No text provided, fetching tools")
+        logger.debug("No text provided, fetching tools")
         return "tools_node"
     
     # Path for Chat / Questions
@@ -305,7 +308,7 @@ def route_input(state: PatientState) -> str:
         return "fetch_medical_knowledge"
         
     if intent == "GENERAL_CHAT":
-        print("General chat detected, fetching assistant")
+        logger.debug("General chat detected, fetching assistant")
         return "assistant_node"
          
     return "assistant_node"
@@ -355,7 +358,7 @@ async def fetch_patient_node(state: PatientState) -> dict:
     from nova_guard.database import AsyncSessionLocal
     from nova_guard.api.patients import get_patient
     
-    print(f"🔍 Fetching patient profile for ID: {state['patient_id']}...")
+    logger.info("Fetching patient profile for ID: %s", state['patient_id'])
     
     async with AsyncSessionLocal() as db:
         patient = await get_patient(db, state["patient_id"])
@@ -400,10 +403,10 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
 
     prescriptions = state.get("prescriptions", [])
 
-    # Direct search with valyu
+    # Clinical research via Nova Pro
     query = state.get("prescription_text") or ""
-    bio_research = query and await bedrock_client.research(query) 
-    print("Valyu Response", bio_research)
+    bio_research = query and await bedrock_client.research(query)
+    logger.info("Clinical research completed (%d chars)", len(bio_research) if bio_research else 0)
     
     # Fallback: if no prescriptions parsed yet (e.g. direct Clinical Query), extract them now
     if not prescriptions:
@@ -418,14 +421,14 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
                 data = json.loads(extracted.replace("```json", "").replace("```", "").strip())
                 for d in data.get("drugs", []):
                     prescriptions.append(PrescriptionData(drug_name=d, dose="", frequency=""))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Drug name extraction fallback failed: %s", e)
 
     if not prescriptions:
          # return {"messages": ["⚠️ No identifiable drugs for knowledge lookup"]}
          return {}
 
-    print(f"📖 Fetching FDA labels for: {[p.drug_name for p in prescriptions]}")
+    logger.info("Fetching FDA labels for: %s", [p.drug_name for p in prescriptions])
 
     drug_info_map = {}
     
@@ -569,7 +572,7 @@ async def assistant_node(state: PatientState) -> dict:
             return fallback
         try:
             return json.dumps(obj, indent=2, ensure_ascii=False, default=str)
-        except:
+        except Exception:
             return str(obj)[:800] + "…" if len(str(obj)) > 800 else str(obj)
 
     patient_profile_str = safe_json(state.get("patient_profile"), "No patient profile selected")
@@ -667,7 +670,7 @@ async def tools_node(state: PatientState) -> dict:
     Executes system actions requested by the Supervisor or Assistant.
     Provides the 'Action' layer for the Agentic workflow.
     """
-    print("🛠️ Tools Node: Executing clinical system action...")
+    logger.info("Tools node: executing clinical system action")
     
     # The Supervisor or Assistant puts a 'system_action' dict in the state
     # Format: {"action": "open_source", "drug": "Lisinopril"}
@@ -708,7 +711,7 @@ async def openfda_node(state: PatientState) -> dict:
     """
     from nova_guard.services.openfda import openfda_client
     
-    print("💊 Running OpenFDA safety checks...")
+    logger.info("Running OpenFDA safety checks")
     
     prescriptions = state.get("prescriptions", [])
     profile = state.get("patient_profile")

@@ -1,13 +1,17 @@
 import json
 import base64
+import logging
 import boto3
 import os
 from typing import Optional, List, Dict, Any
 from botocore.exceptions import ClientError
 from openai import OpenAI
 
+logger = logging.getLogger(__name__)
+
 from nova_guard.config import settings
 from nova_guard.schemas.patient import PrescriptionData
+from nova_guard.services.cache import cached_research
 
 class BedrockClient:
     """Client for interacting with Amazon Nova models (via OpenAI-compatible API)."""
@@ -49,7 +53,7 @@ class BedrockClient:
                     base_url=self.base_url
                 )
             except Exception as e:
-                print(f"⚠️ Failed to initialize OpenAI client: {e}")
+                logger.warning("Failed to initialize OpenAI client: %s", e)
         return self._openai_client
 
     @property
@@ -63,7 +67,7 @@ class BedrockClient:
                     aws_secret_access_key=settings.aws_secret_access_key
                 )
             except Exception as e:
-                print(f"⚠️ Failed to initialize Boto3 client: {e}")
+                logger.warning("Failed to initialize Boto3 client: %s", e)
         return self._boto3_client
 
     # ========================================================================
@@ -73,7 +77,7 @@ class BedrockClient:
         """Uses Nova Micro via OpenAI API to determine user intent."""
         # Fallback if no key (or offline)
         if not self.openai_client:
-            print("⚠️ No Nova API Key found. Using offline keyword fallback.")
+            logger.warning("No Nova API Key found. Using offline keyword fallback.")
             return self._offline_fallback(text)
 
         input_context = f"Message: {text}\nHas Image: {has_image}"
@@ -90,7 +94,7 @@ class BedrockClient:
             )
             return response.choices[0].message.content.strip().upper()
         except Exception as e:
-            print(f"❌ Intent Classification Error: {e}")
+            logger.error("Intent classification failed: %s", e)
             return self._offline_fallback(text)
 
     def _offline_fallback(self, text: str) -> str:
@@ -125,12 +129,13 @@ class BedrockClient:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"❌ Chat Error: {e}")
+            logger.error("Chat completion failed: %s", e)
             return "I'm sorry, I'm having trouble processing that clinical question right now."
 
     # ========================================================================
     # Clinical Research (Nova Pro)
     # ========================================================================
+    @cached_research
     async def research(self, query: str) -> str:
         """
         Provides detailed clinical research using Nova Pro.
@@ -163,7 +168,7 @@ class BedrockClient:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"❌ Research Error: {e}")
+            logger.error("Clinical research failed: %s", e)
             return ""
 
     # ========================================================================
@@ -187,7 +192,7 @@ class BedrockClient:
             )
             return response.choices[0].message.content.strip()
         except Exception as e:
-            print(f"❌ Entity Extraction Error: {e}")
+            logger.error("Entity extraction failed: %s", e)
             return text
 
     async def get_equivalents(self, drug_name: str) -> str:
@@ -263,7 +268,7 @@ class BedrockClient:
         OpenAI-compatible endpoint might not support image bytes directly yet.
         """
         if not self.boto3_client:
-            print("⚠️ AWS credentials required for image processing (Vision).")
+            logger.warning("AWS credentials required for image processing (Vision).")
             return None
 
         prompt = """
@@ -310,7 +315,7 @@ class BedrockClient:
             return PrescriptionData(**data)
             
         except Exception as e:
-            print(f"❌ Image Processing Error: {e}")
+            logger.error("Image processing failed: %s", e)
             return None
 
 # Singleton
