@@ -116,7 +116,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
              </div>
 
              <div className="space-y-3">
-                {verdict.flags.map((flag, i) => (
+                {(verdict.flags || []).map((flag, i) => (
                   <div key={i} className={cn(
                     "rounded-lg border p-3 text-sm bg-white",
                     flag.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
