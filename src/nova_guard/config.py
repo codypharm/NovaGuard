@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Nova API (OpenAI Compatible)
     nova_api_key: str | None = None
 
+    # Valyu Bio Search
+    valyu_api_key: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

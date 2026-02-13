@@ -63,7 +63,7 @@ class PatientState(TypedDict):
     # This is critical for the Tools Node to communicate with the Frontend
     system_action: Optional[dict]        # e.g., {"action": "open_source", "drug": "Aspirin"}
     external_url: Optional[str]          # The URL for the React app to open
-    
+    research_report: Optional[str]       # The research report
     # ========================================================================
     # Messages (for LangGraph's built-in message handling)
     # ========================================================================

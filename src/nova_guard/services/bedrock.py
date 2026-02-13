@@ -129,14 +129,52 @@ class BedrockClient:
             return "I'm sorry, I'm having trouble processing that clinical question right now."
 
     # ========================================================================
-    # EXISTING: Image Processing (Boto3 / Nova Lite)
+    # Clinical Research (Nova Pro)
+    # ========================================================================
+    async def research(self, query: str) -> str:
+        """
+        Provides detailed clinical research using Nova Pro.
+        Supplements the FDA label data already fetched by the workflow.
+        """
+        if not self.openai_client:
+            return ""
+
+        system_prompt = (
+            "You are an evidence-based clinical pharmacist and drug information specialist. "
+            "Provide a detailed, structured research summary covering:\n"
+            "- Mechanism of action\n"
+            "- Pharmacokinetics (absorption, metabolism, half-life)\n"
+            "- Key clinical evidence and landmark trials\n"
+            "- Common and serious adverse effects\n"
+            "- Important drug interactions (with CYP450 pathways)\n"
+            "- Special population considerations (renal, hepatic, pediatric, geriatric, pregnancy)\n\n"
+            "Use precise pharmacological language. Cite landmark studies where relevant. "
+            "If the query is about multiple drugs, address each one clearly."
+        )
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_PRO,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": query}
+                ],
+                temperature=0.2
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"❌ Research Error: {e}")
+            return ""
+
+    # ========================================================================
+    # RESTORED: Clinical Utilities & Entity Extraction
     # ========================================================================
     async def extract_entity(self, text: str, prompt: str) -> str:
         """
         Uses Nova Micro to extract specific entities (drug names, dates, etc.) from text.
         """
         if not self.openai_client:
-            return text # Fallback to returning original text if offline
+            return text
 
         try:
             response = self.openai_client.chat.completions.create(
@@ -152,22 +190,17 @@ class BedrockClient:
             print(f"❌ Entity Extraction Error: {e}")
             return text
 
-    # ========================================================================
-    # NEW: Clinical Tools (Nova Lite)
-    # ========================================================================
     async def get_equivalents(self, drug_name: str) -> str:
         """Maps therapeutic classmates and 2026 interchangeable biosimilars."""
-        if not self.openai_client: return "{}"
+        if not self.openai_client: return "Unable to retrieve equivalents at this time."
 
         prompt = f"""
         # Therapeutic Equivalents: {drug_name}
-        
         Identify equivalents including:
-        1. **Classmates**: (e.g., other Statins with potency comparisons).
-        2. **Biosimilars**: 2026 Interchangeable standards (Purple Book).
-        3. **Interchangeability Rules**: Pharmacy specific substitution logic.
-        
-        Return a clean Markdown report with headers and tables.
+        1. Classmates (potency comparisons).
+        2. Biosimilars (2026 Interchangeable standards).
+        3. Interchangeability Rules.
+        Return Markdown.
         """
         try:
             response = self.openai_client.chat.completions.create(
@@ -176,96 +209,50 @@ class BedrockClient:
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"❌ Equivalents Error: {e}")
-            return "Unable to retrieve equivalents at this time."
+            return f"Error: {e}"
 
     async def get_interaction_insights(self, drugs: List[str]) -> str:
         """Analyzes drug-drug interactions with metabolic pathway detail."""
-        if not self.openai_client: return "[]"
+        if not self.openai_client: return "Unable to analyze interactions."
 
-        prompt = f"""
-        # Drug Interaction Insights
-        Analyzed Medications: {', '.join(drugs)}
-        
-        Provide:
-        1. **Severity Matrix**: Categorical risk levels.
-        2. **CYP450 Details**: Identify specific enzymes (3A4, 2D6, etc.) inhibited/induced.
-        3. **Clinical Action**: Recommended modification or monitoring.
-        
-        Return a clean Markdown report.
-        """
+        prompt = f"Analyze drug-drug interactions for: {', '.join(drugs)}. Include CYP450 details and clinical action."
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.MODEL_MICRO,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
-        except Exception as e:
-            print(f"❌ Interactions Error: {e}")
-            return "Unable to analyze interactions at this time."
+        except Exception:
+            return "Interaction analysis failed."
 
     async def get_safety_and_counseling(self, medications: List[Any]) -> str:
-        """Generates a high-contrast clinical safety matrix and patient counseling for a regimen."""
-        if not self.openai_client: return "{}"
+        """Generates a clinical safety matrix and patient counseling."""
+        if not self.openai_client: return "Safety profile unavailable."
 
-        med_details = ""
-        med_names = []
-        for med in medications:
-            name = getattr(med, 'name', med.get('name', 'Unknown'))
-            dosage = getattr(med, 'dosage', med.get('dosage', 'Not specified'))
-            duration = getattr(med, 'duration', med.get('duration', 'Not specified'))
-            med_details += f"\n- **{name}**: {dosage} ({duration})"
-            med_names.append(name)
-
-        drug_list_str = ", ".join(med_names)
-
-        prompt = f"""
-        # Clinical Regimen Safety Profile: {drug_list_str}
-        
-        **Medication Details:**
-        {med_details}
-        
-        Provide a comprehensive assessment including:
-        1. **Cumulative Safety Matrix**: (Pregnancy, Lactation, Geriatric, Pediatric) risk levels for the entire regimen.
-        2. **Integrated Patient Counseling**: 3-5 critical focus points tailored to these specific dosages and durations. Consider combined risks or administrative timing.
-        3. **Black Box Warnings**: Relevant FDA warnings for any drugs in the list.
-        
-        Return a clean Markdown report with headers and bold highlights.
-        """
+        med_list = [getattr(m, 'drug_name', str(m)) for m in medications]
+        prompt = f"Provide a Safety Matrix (Pregnancy, Lactation, etc.) and Patient Counseling for: {', '.join(med_list)}."
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
-        except Exception as e:
-            print(f"❌ Safety Analysis Error: {e}")
-            return "Safety profile unavailable."
+        except Exception:
+            return "Safety analysis failed."
 
     async def get_renal_adjustment(self, drug_name: str, crcl: float, weight_info: str) -> str:
-        """Provides AI-driven renal dosing recommendations based on calculated CrCl."""
-        if not self.openai_client: return "{}"
+        """Provides renal dosing recommendations."""
+        if not self.openai_client: return "Renal dosing guidance unavailable."
 
-        prompt = f"""
-        # Renal Dosing Assessment: {drug_name}
-        Calculated CrCl: **{crcl} mL/min** (using {weight_info})
-        
-        Provide:
-        1. **Dosing Strategy**: (Standard / Reduced / Extended Interval / Contraindicated).
-        2. **Specific Recommendation**: (e.g., Target dose and frequency).
-        3. **Clinical Rationale**: Reference PI/FDA guidance.
-        
-        Return a concise Markdown clinical report.
-        """
+        prompt = f"Renal Dosing Assessment for {drug_name}. CrCl: {crcl} mL/min ({weight_info}). Provide Dosing Strategy and Rationale."
         try:
             response = self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
-        except Exception as e:
-            print(f"❌ Renal Adjustment Error: {e}")
-            return "Renal dosing guidance unavailable."
+        except Exception:
+            return "Renal guidance failed."
 
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)

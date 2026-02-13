@@ -8,6 +8,7 @@ from nova_guard.schemas.patient import PrescriptionData
 from langchain_core.messages import AIMessage
 
 
+
 # ============================================================================
 # INTAKE NODES - Handle different input modalities
 # ============================================================================
@@ -395,16 +396,21 @@ async def fetch_patient_node(state: PatientState) -> dict:
 
 async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     from nova_guard.services.openfda import openfda_client
-    from nova_guard.schemas.patient import PrescriptionData
+    from nova_guard.services.bedrock import bedrock_client
 
     prescriptions = state.get("prescriptions", [])
+
+    # Direct search with valyu
+    query = state.get("prescription_text") or ""
+    bio_research = query and await bedrock_client.research(query) 
+    print("Valyu Response", bio_research)
     
     # Fallback: if no prescriptions parsed yet (e.g. direct Clinical Query), extract them now
     if not prescriptions:
         txt = state.get("prescription_text") or ""
         if txt:
             # Re-use the multi-drug extraction logic or a simplified version
-            from nova_guard.services.bedrock import bedrock_client
+            
             import json
             try:
                 extraction_prompt = "Extract ALL generic drug names from this text as a JSON list of strings: {\"drugs\": [\"...\", \"...\"]}. Text: " + txt
@@ -426,7 +432,7 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     for prescription in prescriptions:
         drug_name = prescription.drug_name
         label = await openfda_client.get_drug_label(drug_name)
-
+       
         if not label:
             continue
 
@@ -438,8 +444,9 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
             "boxed_warning": openfda_client._extract_field(label, "boxed_warning") or "None",
             "warnings": openfda_client._extract_field(label, "warnings") or "—",
             "interactions": openfda_client._extract_field(label, "drug_interactions") or "—",
-            "source_url": openfda_client._get_citation(label) or "—"
+            "source_url": openfda_client._get_citation(label) or "—",
         }
+        refined["research_report"] = bio_research
         drug_info_map[drug_name] = refined
 
     # Backward compatibility for single-drug nodes (if any)
@@ -448,6 +455,7 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     return {
         "drug_info_map": drug_info_map,
         "drug_info": first_drug_info, # Backward compat
+        "research_report": bio_research,
         # Ensure prescriptions is updated in state if we acted as fallback
         "prescriptions": prescriptions 
     }
@@ -519,7 +527,7 @@ async def assistant_node(state: PatientState) -> dict:
     role_map = {
         "MEDICAL_KNOWLEDGE": (
             "Act as evidence-based clinical pharmacist. "
-            "Answer strictly using provided FDA reference data only. "
+            f"Answer strictly using provided FDA reference data and bio-research data: {state['research_report']}. "
             "If multiple drugs are involved, structure the answer clearly for EACH drug. "
             "Include: mechanism of action, approved indications, "
             "standard dosing & key adjustments (renal/hepatic/elderly), "
