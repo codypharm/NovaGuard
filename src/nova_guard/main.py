@@ -353,6 +353,151 @@ async def process_clinical_interaction(
         except Exception:
             pass  # Audit failure is never user-facing
 
+
+# ============================================================================
+# Streaming Endpoint (SSE — Phase 1: node-level progress)
+# ============================================================================
+
+# Human-readable labels for each graph node
+_NODE_LABELS = {
+    "gateway_supervisor": "Classifying your request…",
+    "image_intake": "Reading prescription image…",
+    "text_intake": "Parsing prescription text…",
+    "voice_intake": "Transcribing voice input…",
+    "fetch_patient": "Loading patient profile…",
+    "fetch_medical_knowledge": "Searching medical literature…",
+    "auditor": "Analyzing prescriptions…",
+    "openfda": "Checking FDA safety database…",
+    "verdict": "Generating safety verdict…",
+    "assistant_node": "Preparing response…",
+    "tools_node": "Executing clinical action…",
+}
+
+
+@app.post("/clinical-interaction/stream")
+async def stream_clinical_interaction(
+    patient_id: Optional[int] = Form(None),
+    prescription_text: Optional[str] = Form(None),
+    session_id: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    request: Request = None,
+):
+    """
+    SSE streaming endpoint — emits progress events as each graph node completes.
+    Frontend consumes via fetch + ReadableStream.
+    """
+    import json as _json
+    from fastapi.responses import StreamingResponse
+    from langchain_core.messages import HumanMessage
+
+    # ── Prepare input (same as /process) ──
+    image_bytes = await file.read() if file else None
+
+    initial_messages = []
+    if prescription_text:
+        initial_messages.append(HumanMessage(content=prescription_text))
+
+    initial_state = {
+        "patient_id": patient_id,
+        "prescription_text": prescription_text,
+        "prescription_image": image_bytes,
+        "messages": initial_messages,
+    }
+
+    # ── Session management ──
+    preview_text = prescription_text or ("Image Uploaded" if file else "New Session")
+    session = await session_crud.update_session_patient(
+        db, session_id, current_user.id, patient_id, preview_text=preview_text
+    )
+    if not session:
+        raise HTTPException(status_code=403, detail="Not authorized to access this session")
+
+    config = {"configurable": {"thread_id": session_id}}
+
+    def get_msg_content(msg):
+        if hasattr(msg, "content"): return msg.content
+        if isinstance(msg, dict): return msg.get("content", str(msg))
+        return str(msg)
+
+    async def event_generator():
+        """Yields SSE-formatted events as the graph executes."""
+        result = None
+        last_msg = None
+
+        try:
+            workflow = request.app.state.prescription_workflow
+
+            # stream_mode="updates" yields {node_name: updated_state_delta} per step
+            async for chunk in workflow.astream(initial_state, config, stream_mode="updates"):
+                for node_name, node_output in chunk.items():
+                    label = _NODE_LABELS.get(node_name, f"Processing {node_name}…")
+
+                    # Emit progress event
+                    yield f"data: {_json.dumps({'event': 'progress', 'node': node_name, 'label': label})}\n\n"
+
+                    # Track final state pieces as they arrive
+                    if isinstance(node_output, dict):
+                        if result is None:
+                            result = {}
+                        result.update(node_output)
+
+            # ── Stream complete — send final result ──
+            if result:
+                last_msg = result.get("messages", [])[-1] if result.get("messages") else None
+                final = {
+                    "event": "complete",
+                    "status": "completed",
+                    "intent": result.get("intent"),
+                    "verdict": result.get("verdict"),
+                    "assistant_response": get_msg_content(last_msg) if last_msg else None,
+                    "safety_flags": result.get("safety_flags", []),
+                }
+                yield f"data: {_json.dumps(final, default=str)}\n\n"
+            else:
+                yield f"data: {_json.dumps({'event': 'complete', 'status': 'completed'})}\n\n"
+
+        except Exception as e:
+            logging.getLogger(__name__).error("Stream failed for session %s: %s", session_id, e)
+            error_payload = {
+                "event": "error",
+                "message": "Something went wrong. Please try again.",
+                "detail": str(e) if os.getenv("ENVIRONMENT") == "development" else None,
+            }
+            yield f"data: {_json.dumps(error_payload)}\n\n"
+
+        finally:
+            # Non-blocking audit log
+            try:
+                from nova_guard.services.audit_service import log_interaction
+                resp_text = get_msg_content(last_msg)[:500] if last_msg else None
+                verdict_obj = result.get("verdict") if result else None
+                await log_interaction(
+                    db,
+                    session_id=session_id,
+                    user_id=current_user.id,
+                    action="clinical_interaction",
+                    intent=result.get("intent") if result else None,
+                    query=(prescription_text or "")[:500],
+                    response_summary=resp_text,
+                    verdict_status=verdict_obj.get("status") if isinstance(verdict_obj, dict) else None,
+                    flag_count=len(result.get("safety_flags", [])) if result else 0,
+                )
+            except Exception:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering if proxied
+        },
+    )
+
+
 # ============================================================================
 # Session Endpoints
 # ============================================================================

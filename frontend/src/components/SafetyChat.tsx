@@ -20,12 +20,13 @@ interface SafetyChatProps {
   sessionId: string
   verdict: Verdict | null
   isProcessing: boolean
+  processingStep?: string | null  // Live SSE node label
   onProcess: (text: string, file: File | null) => void
   assistantResponse: string | null
   onResponseShown: () => void
 }
 
-export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
+export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [input, setInput] = useState("")
@@ -272,10 +273,17 @@ export function SafetyChat({ sessionId, verdict, isProcessing, onProcess, assist
                <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
                   <Bot className="h-4 w-4 text-teal-600 animate-pulse" />
                </div>
-               <div className="bg-slate-100 rounded-2xl rounded-tl-none px-4 py-4 text-sm text-slate-600 flex items-center gap-1.5 min-h-[44px]">
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+               <div className="bg-slate-100 rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-600 min-h-[44px] flex flex-col gap-1.5">
+                  {processingStep && (
+                    <span className="text-xs font-medium text-teal-600 animate-pulse">
+                      {processingStep}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+                  </div>
                </div>
            </div>
         )}

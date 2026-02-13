@@ -4,13 +4,14 @@ import { DashboardLayout } from '@/components/DashboardLayout'
 import { SafetyChat } from '@/components/SafetyChat'
 import { PatientForm } from '@/components/PatientForm'
 import { type Verdict } from '@/components/SafetyAnalysis'
-import { processClinicalInteraction, type Patient } from '@/services/api'
+import { streamClinicalInteraction, type Patient } from '@/services/api'
 import { useSessionContext } from "@/context/SessionContext"
 import DrugOperationsModule from '@/components/DrugOperationsModule'
 
 export function SafetyHUD() {
   const { sessionId, sessionsHistory, refreshSessions, activeModule } = useSessionContext()
   const [isProcessing, setIsProcessing] = useState(false)
+  const [processingStep, setProcessingStep] = useState<string | null>(null)
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [assistantResponse, setAssistantResponse] = useState<string | null>(null)
@@ -36,40 +37,37 @@ export function SafetyHUD() {
     if (!file && !text) return
     
     setIsProcessing(true)
+    setProcessingStep(null)
     setVerdict(null) 
     
     try {
-        const result = await processClinicalInteraction(
-            sessionId, 
-            patient ? patient.id : null, 
-            text, 
-            file
+        await streamClinicalInteraction(
+            sessionId,
+            patient ? patient.id : null,
+            text,
+            file,
+            {
+                onProgress: (event) => {
+                    setProcessingStep(event.label)
+                },
+                onComplete: (event) => {
+                    if (event.verdict) {
+                        setVerdict(event.verdict as Verdict)
+                    }
+                    if (event.assistant_response) {
+                        setAssistantResponse(event.assistant_response)
+                    }
+                },
+                onError: (event) => {
+                    setAssistantResponse(
+                        `**⚠️ ${event.message}**\n\nPlease try again or rephrase your query.`
+                    )
+                },
+            }
         )
         
         // Refresh session list to show updated title
         refreshSessions()
-
-        // Handle backend error status
-        if (result.status === 'error') {
-            setAssistantResponse(
-                `**⚠️ ${(result as any).message || 'Something went wrong.'}**\n\nPlease try again or rephrase your query.`
-            )
-            return
-        }
-        
-        // Handle Assistant Response & Verdict
-        if (result.verdict) {
-            setVerdict(result.verdict as Verdict)
-        }
-
-        if (result.assistant_response) {
-            setAssistantResponse(result.assistant_response)
-        }
-        
-        // Handle External Actions (e.g., Open Source)
-        if (result.external_url) {
-            window.open(result.external_url, '_blank')
-        }
 
     } catch (err) {
         console.error("Analysis Failed", err)
@@ -78,6 +76,7 @@ export function SafetyHUD() {
         )
     } finally {
         setIsProcessing(false)
+        setProcessingStep(null)
     }
   }
 
@@ -107,7 +106,8 @@ export function SafetyHUD() {
                 <SafetyChat 
                     sessionId={sessionId}
                     verdict={verdict} 
-                    isProcessing={isProcessing} 
+                    isProcessing={isProcessing}
+                    processingStep={processingStep}
                     onProcess={handleProcess} 
                     assistantResponse={assistantResponse}
                     onResponseShown={() => setAssistantResponse(null)}

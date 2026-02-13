@@ -99,6 +99,111 @@ export async function processClinicalInteraction(
     return res.json()
 }
 
+// ============================================================================
+// Streaming API (SSE via fetch + ReadableStream)
+// ============================================================================
+
+export interface StreamProgressEvent {
+    event: "progress"
+    node: string
+    label: string
+}
+
+export interface StreamCompleteEvent {
+    event: "complete"
+    status: string
+    intent?: string
+    verdict?: ProcessResponse["verdict"]
+    assistant_response?: string
+    safety_flags?: any[]
+}
+
+export interface StreamErrorEvent {
+    event: "error"
+    message: string
+    detail?: string
+}
+
+export type StreamEvent = StreamProgressEvent | StreamCompleteEvent | StreamErrorEvent
+
+export interface StreamCallbacks {
+    onProgress?: (event: StreamProgressEvent) => void
+    onComplete?: (event: StreamCompleteEvent) => void
+    onError?: (event: StreamErrorEvent) => void
+}
+
+/**
+ * Streams clinical interaction results via SSE.
+ * Uses fetch + ReadableStream (not EventSource) to support POST + FormData.
+ */
+export async function streamClinicalInteraction(
+    sessionId: string,
+    patientId: number | null,
+    text: string,
+    file: File | null,
+    callbacks: StreamCallbacks,
+): Promise<void> {
+    const formData = new FormData()
+    formData.append("session_id", sessionId)
+    if (patientId) formData.append("patient_id", patientId.toString())
+    formData.append("input_type", file ? "image" : "text")
+    if (text) formData.append("prescription_text", text)
+    if (file) formData.append("file", file)
+
+    const reqHeaders: any = await getAuthHeaders()
+
+    const res = await fetch(`${API_URL}/clinical-interaction/stream`, {
+        method: "POST",
+        headers: reqHeaders,
+        body: formData,
+    })
+
+    if (!res.ok) {
+        const err = await res.text()
+        throw new Error(err || "Stream request failed")
+    }
+
+    const reader = res.body?.getReader()
+    if (!reader) throw new Error("No readable stream available")
+
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+
+        // SSE events are separated by double newlines
+        const parts = buffer.split("\n\n")
+        buffer = parts.pop() || "" // Keep incomplete last chunk in buffer
+
+        for (const part of parts) {
+            const line = part.trim()
+            if (!line.startsWith("data: ")) continue
+
+            try {
+                const event: StreamEvent = JSON.parse(line.slice(6))
+
+                switch (event.event) {
+                    case "progress":
+                        callbacks.onProgress?.(event)
+                        break
+                    case "complete":
+                        callbacks.onComplete?.(event)
+                        break
+                    case "error":
+                        callbacks.onError?.(event)
+                        break
+                }
+            } catch {
+                console.warn("Failed to parse SSE event:", line)
+            }
+        }
+    }
+}
+
 export async function createPatient(data: Partial<Patient>): Promise<Patient> {
     const headers: any = await getAuthHeaders();
     headers["Content-Type"] = "application/json";
