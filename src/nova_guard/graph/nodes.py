@@ -530,7 +530,7 @@ async def assistant_node(state: PatientState) -> dict:
     role_map = {
         "MEDICAL_KNOWLEDGE": (
             "Act as evidence-based clinical pharmacist. "
-            f"Answer strictly using provided FDA reference data and bio-research data: {state['research_report']}. "
+            f"Answer strictly using provided FDA reference data and bio-research data: {state.get('research_report', '')}. "
             "If multiple drugs are involved, structure the answer clearly for EACH drug. "
             "Include: mechanism of action, approved indications, "
             "standard dosing & key adjustments (renal/hepatic/elderly), "

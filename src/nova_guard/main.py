@@ -392,7 +392,7 @@ async def stream_clinical_interaction(
     from fastapi.responses import StreamingResponse
     from langchain_core.messages import HumanMessage
 
-    # ── Prepare input (same as /process) ──
+    # ── All DB / auth / file work happens HERE (before generator starts) ──
     image_bytes = await file.read() if file else None
 
     initial_messages = []
@@ -406,7 +406,6 @@ async def stream_clinical_interaction(
         "messages": initial_messages,
     }
 
-    # ── Session management ──
     preview_text = prescription_text or ("Image Uploaded" if file else "New Session")
     session = await session_crud.update_session_patient(
         db, session_id, current_user.id, patient_id, preview_text=preview_text
@@ -415,6 +414,11 @@ async def stream_clinical_interaction(
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     config = {"configurable": {"thread_id": session_id}}
+    workflow = request.app.state.prescription_workflow
+
+    # Capture user info for audit (avoids touching Depends objects inside generator)
+    _user_id = current_user.id
+    _query_text = (prescription_text or "")[:500]
 
     def get_msg_content(msg):
         if hasattr(msg, "content"): return msg.content
@@ -422,28 +426,26 @@ async def stream_clinical_interaction(
         return str(msg)
 
     async def event_generator():
-        """Yields SSE-formatted events as the graph executes."""
+        """Yields SSE events. No Depends-injected objects used here."""
         result = None
         last_msg = None
 
         try:
-            workflow = request.app.state.prescription_workflow
-
-            # stream_mode="updates" yields {node_name: updated_state_delta} per step
             async for chunk in workflow.astream(initial_state, config, stream_mode="updates"):
                 for node_name, node_output in chunk.items():
-                    label = _NODE_LABELS.get(node_name, f"Processing {node_name}…")
+                    # Skip internal LangGraph nodes
+                    if node_name.startswith("__"):
+                        continue
 
-                    # Emit progress event
+                    label = _NODE_LABELS.get(node_name, f"Processing {node_name}…")
                     yield f"data: {_json.dumps({'event': 'progress', 'node': node_name, 'label': label})}\n\n"
 
-                    # Track final state pieces as they arrive
                     if isinstance(node_output, dict):
                         if result is None:
                             result = {}
                         result.update(node_output)
 
-            # ── Stream complete — send final result ──
+            # ── Stream complete ──
             if result:
                 last_msg = result.get("messages", [])[-1] if result.get("messages") else None
                 final = {
@@ -468,22 +470,24 @@ async def stream_clinical_interaction(
             yield f"data: {_json.dumps(error_payload)}\n\n"
 
         finally:
-            # Non-blocking audit log
+            # Audit log with its own DB session (Depends session may be closed)
             try:
                 from nova_guard.services.audit_service import log_interaction
-                resp_text = get_msg_content(last_msg)[:500] if last_msg else None
-                verdict_obj = result.get("verdict") if result else None
-                await log_interaction(
-                    db,
-                    session_id=session_id,
-                    user_id=current_user.id,
-                    action="clinical_interaction",
-                    intent=result.get("intent") if result else None,
-                    query=(prescription_text or "")[:500],
-                    response_summary=resp_text,
-                    verdict_status=verdict_obj.get("status") if isinstance(verdict_obj, dict) else None,
-                    flag_count=len(result.get("safety_flags", [])) if result else 0,
-                )
+                from nova_guard.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as audit_db:
+                    resp_text = get_msg_content(last_msg)[:500] if last_msg else None
+                    verdict_obj = result.get("verdict") if result else None
+                    await log_interaction(
+                        audit_db,
+                        session_id=session_id,
+                        user_id=_user_id,
+                        action="clinical_interaction",
+                        intent=result.get("intent") if result else None,
+                        query=_query_text,
+                        response_summary=resp_text,
+                        verdict_status=verdict_obj.get("status") if isinstance(verdict_obj, dict) else None,
+                        flag_count=len(result.get("safety_flags", [])) if result else 0,
+                    )
             except Exception:
                 pass
 
@@ -493,7 +497,7 @@ async def stream_clinical_interaction(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # Disable nginx buffering if proxied
+            "X-Accel-Buffering": "no",
         },
     )
 
