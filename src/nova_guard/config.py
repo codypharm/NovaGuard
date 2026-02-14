@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     
     # AWS
-    aws_region: str = "us-east-1"
+    aws_region: str = "us-east-2"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     

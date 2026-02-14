@@ -393,11 +393,42 @@ async def stream_clinical_interaction(
     from langchain_core.messages import HumanMessage
 
     # ── All DB / auth / file work happens HERE (before generator starts) ──
-    image_bytes = await file.read() if file else None
+    import uuid
+    import aiofiles
+
+    image_bytes = None
+    image_url = None
+    
+    if file:
+        image_bytes = await file.read()
+        
+        # Save file locally for persistence (served by Vite from public/)
+        file_ext = file.filename.split('.')[-1] if '.' in file.filename else "jpg"
+        unique_filename = f"{uuid.uuid4()}.{file_ext}"
+        upload_dir = "frontend/public/uploads"
+        file_path = os.path.join(upload_dir, unique_filename)
+        
+        # Ensure dir exists (in case it wasn't created yet)
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        async with aiofiles.open(file_path, 'wb') as out_file:
+            await out_file.write(image_bytes)
+            
+        # URL path relative to web root
+        image_url = f"/uploads/{unique_filename}"
 
     initial_messages = []
+    
+    # Construct message with text + image markdown if available
+    content_parts = []
+    if image_url:
+        content_parts.append(f"![Prescription Image]({image_url})")
     if prescription_text:
-        initial_messages.append(HumanMessage(content=prescription_text))
+        content_parts.append(prescription_text)
+        
+    if content_parts:
+        full_content = "\n\n".join(content_parts)
+        initial_messages.append(HumanMessage(content=full_content))
 
     initial_state = {
         "patient_id": patient_id,
@@ -448,13 +479,21 @@ async def stream_clinical_interaction(
             # ── Stream complete ──
             if result:
                 last_msg = result.get("messages", [])[-1] if result.get("messages") else None
+                # Helper to serialize Pydantic models
+                def _serialize(obj):
+                    if hasattr(obj, "model_dump"):
+                        return obj.model_dump()
+                    if hasattr(obj, "dict"): # Pydantic v1 fallback
+                        return obj.dict()
+                    return obj
+
                 final = {
                     "event": "complete",
                     "status": "completed",
                     "intent": result.get("intent"),
-                    "verdict": result.get("verdict"),
+                    "verdict": _serialize(result.get("verdict")),
                     "assistant_response": get_msg_content(last_msg) if last_msg else None,
-                    "safety_flags": result.get("safety_flags", []),
+                    "safety_flags": [_serialize(f) for f in result.get("safety_flags", [])],
                 }
                 yield f"data: {_json.dumps(final, default=str)}\n\n"
             else:
@@ -606,6 +645,7 @@ async def get_session_history(
             # Skip internal system logs for the frontend
             if role == "assistant" and any(str(content).strip().startswith(p) for p in ignored_prefixes):
                 continue
+
 
             # Simple ID generation (in reality, msg.id might exist or we use index)
             msg_id = getattr(msg, "id", f"{role}-{len(history)}")

@@ -50,13 +50,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                   id: msg.id,
                   role: msg.role,
                   timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-                  content: msg.role === 'assistant' ? (
-                      <div className="prose prose-sm prose-slate max-w-none dark:prose-invert prose-headings:text-slate-900 prose-h2:text-slate-900 prose-h3:text-slate-900 prose-p:text-slate-800 prose-li:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold prose-th:text-slate-900 prose-td:text-slate-800">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(msg.content)}</ReactMarkdown>
-                      </div>
-                  ) : (
-                      <p>{msg.content}</p>
-                  )
+                  content: msg.content
               }))
               setMessages(formattedMessages)
           } catch (err) {
@@ -104,7 +98,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                 verdict.status === "yellow" ? "bg-amber-500" : "bg-rose-500"
               )}>
                 <div className="flex-1">
-                  <h3 className="font-bold text-lg">
+                  <h3 className="font-bold text-lg text-white">
                     {verdict.status === "green" ? "SAFE TO DISPENSE" :
                      verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
                   </h3>
@@ -261,9 +255,29 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                 </div>
                 <div className={cn(
                     "max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm",
-                    msg.role === 'user' ? "bg-teal-50 text-teal-900 border border-teal-100 rounded-tr-none" : "bg-white text-slate-800 border border-slate-100 rounded-tl-none"
+                    msg.role === 'user' 
+                        ? "bg-teal-50 text-teal-900 border border-teal-100 rounded-tr-none prose-p:text-teal-800 prose-headings:text-teal-900 prose-strong:text-teal-900 prose-li:text-teal-800 prose-ul:text-teal-800" 
+                        : "bg-white text-slate-800 border border-slate-100 rounded-tl-none prose-p:text-slate-700 prose-headings:text-slate-900 prose-strong:text-slate-800 prose-li:text-slate-700 prose-ul:text-slate-700"
                 )}>
-                    {msg.content}
+                    <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
+                        {typeof msg.content === 'string' ? (
+                            <ReactMarkdown 
+                                components={{
+                                    img: ({node, ...props}) => (
+                                        <img 
+                                            {...props} 
+                                            className="rounded-lg max-w-full h-auto my-2 border border-slate-200 shadow-sm" 
+                                            alt={props.alt || "Image"}
+                                        />
+                                    )
+                                }}
+                            >
+                                {msg.content}
+                            </ReactMarkdown>
+                        ) : (
+                            msg.content
+                        )}
+                    </div>
                 </div>
             </div>
         ))}

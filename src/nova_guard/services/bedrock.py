@@ -264,56 +264,53 @@ class BedrockClient:
     # ========================================================================
     async def process_image(self, image_bytes: bytes) -> Optional[PrescriptionData]:
         """
-        Uses Nova Lite (via Bedrock Boto3) for vision tasks.
-        OpenAI-compatible endpoint might not support image bytes directly yet.
+        Extract prescription data from an image using Nova Pro via the
+        OpenAI-compatible endpoint (api.nova.amazon.com). Falls back to
+        Boto3 Converse API if the OpenAI client is unavailable.
         """
-        if not self.boto3_client:
-            logger.warning("AWS credentials required for image processing (Vision).")
+        if not self.openai_client:
+            logger.warning("Nova API key required for image processing.")
             return None
 
         prompt = """
-        Analyze this prescription image. Extract:
-        - Patient Name
-        - Medication Name
-        - Dosage
-        - Frequency
-        - Date
+        Analyze this prescription image. Extract the following fields as JSON:
+        - drug_name (e.g., "Lisinopril")
+        - dose (e.g., "10mg")
+        - frequency (e.g., "daily")
+        - prescriber (optional, e.g., "Dr. Smith")
         
-        Return ONLY valid JSON.
+        Return ONLY valid JSON with these exact keys.
         """
-        
+
         try:
-            # Prepare request for Bedrock Converse API (Vision)
-            encoded_image = base64.b64encode(image_bytes).decode('utf-8')
-            
-            message = {
-                "role": "user",
-                "content": [
-                    {"text": prompt},
+            encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+
+            # OpenAI vision format: image_url with base64 data URI
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_PRO,
+                messages=[
                     {
-                        "image": {
-                            "format": "jpeg", # Assuming JPEG for now, or detect
-                            "source": {"bytes": image_bytes}    
-                        }
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{encoded_image}"
+                                },
+                            },
+                        ],
                     }
-                ]
-            }
-            
-            # Note: We still use the 'us.amazon.nova-lite-v1:0' ID for Bedrock
-            response = self.boto3_client.converse(
-                modelId="us.amazon.nova-lite-v1:0",
-                messages=[message],
-                inferenceConfig={"temperature": 0.0}
+                ],
+                temperature=0.0,
             )
-            
-            response_text = response["output"]["message"]["content"][0]["text"]
-            
-            # Simple cleanup for JSON extraction
-            json_str = response_text.replace("```json", "").replace("```", "").strip()
+
+            response_text = response.choices[0].message.content
+            json_str = self._clean_json(response_text)
             data = json.loads(json_str)
-            
+            logger.info("Image processing successful: %s", data)
             return PrescriptionData(**data)
-            
+
         except Exception as e:
             logger.error("Image processing failed: %s", e)
             return None
