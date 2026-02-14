@@ -92,7 +92,16 @@ async def get_patients(
     db: AsyncSession, skip: int = 0, limit: int = 100
 ) -> list[Patient]:
     """Get list of patients."""
-    result = await db.execute(select(Patient).offset(skip).limit(limit))
+    result = await db.execute(
+        select(Patient)
+        .options(
+            selectinload(Patient.drug_history),
+            selectinload(Patient.allergies),
+            selectinload(Patient.adverse_reactions),
+        )
+        .offset(skip)
+        .limit(limit)
+    )
     return list(result.scalars().all())
 
 

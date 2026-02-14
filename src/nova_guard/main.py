@@ -590,11 +590,12 @@ async def list_recent_sessions(
 @app.post("/sessions", response_model=SessionResponse)
 async def create_session(
     session_id: str = Form(...),
+    patient_id: Optional[int] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Create or initialize a session."""
-    return await session_crud.update_session_patient(db, session_id, current_user.id, None)
+    return await session_crud.update_session_patient(db, session_id, current_user.id, patient_id)
 
 
 @app.delete("/sessions/{session_id}", status_code=204)

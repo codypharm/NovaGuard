@@ -7,6 +7,7 @@ import { type Verdict } from '@/components/SafetyAnalysis'
 import { streamClinicalInteraction, type Patient } from '@/services/api'
 import { useSessionContext } from "@/context/SessionContext"
 import DrugOperationsModule from '@/components/DrugOperationsModule'
+import PatientDatabaseModule from '@/components/PatientDatabaseModule'
 
 export function SafetyHUD() {
   const { sessionId, sessionsHistory, refreshSessions, activeModule } = useSessionContext()
@@ -87,6 +88,8 @@ export function SafetyHUD() {
          <h1 className="text-2xl font-bold tracking-tight text-slate-900 truncate mr-4">
             {activeModule === 'drug-operations' 
                 ? "Drug Operations Center" 
+                : activeModule === 'patient-database'
+                ? "Patient Database & Profiles"
                 : (patient ? `Safety Check - ${patient.name}` : "New Safety Check")
             }
          </h1>
@@ -98,6 +101,10 @@ export function SafetyHUD() {
       {activeModule === 'drug-operations' ? (
         <div className="h-[calc(100vh-9rem)] overflow-y-auto">
             <DrugOperationsModule />
+        </div>
+      ) : activeModule === 'patient-database' ? (
+        <div className="h-[calc(100vh-9rem)] overflow-y-auto">
+            <PatientDatabaseModule />
         </div>
       ) : (
         <div className="h-[calc(100vh-9rem)] grid grid-cols-1 lg:grid-cols-4 gap-6">

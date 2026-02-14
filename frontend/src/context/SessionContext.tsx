@@ -7,9 +7,9 @@ interface SessionContextType {
     sessionId: string
     sessionsHistory: Session[]
     loading: boolean
-    activeModule: 'safety-check' | 'drug-operations'
-    setActiveModule: (module: 'safety-check' | 'drug-operations') => void
-    createNewSession: () => Promise<string>
+    activeModule: 'safety-check' | 'drug-operations' | 'patient-database'
+    setActiveModule: (module: 'safety-check' | 'drug-operations' | 'patient-database') => void
+    createNewSession: (patientId?: number) => Promise<string>
     refreshSessions: () => Promise<Session[]>
     switchSession: (id: string) => void
     deleteSession: (id: string) => Promise<void>
@@ -20,7 +20,7 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined)
 export function SessionProvider({ children }: { children: React.ReactNode }) {
     const [sessionId, setSessionId] = useState<string>("")
     const [sessionsHistory, setSessionsHistory] = useState<Session[]>([])
-    const [activeModule, setActiveModule] = useState<'safety-check' | 'drug-operations'>('safety-check')
+    const [activeModule, setActiveModule] = useState<'safety-check' | 'drug-operations' | 'patient-database'>('safety-check')
     const [loading, setLoading] = useState(false)
 
     const { isLoaded, userId, getToken } = useAuth()
@@ -105,7 +105,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
     const isCreatingRef = React.useRef(false)
 
-    const createNewSession = async () => {
+    const createNewSession = async (patientId?: number) => {
         if (isCreatingRef.current) {
             // console.warn("⚠️ createNewSession blocked: already in progress")
             return ""
@@ -116,8 +116,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         const newId = uuidv4()
         
         try {
-            console.log("📡 API: Calling apiCreateSession", newId)
-            await apiCreateSession(newId)
+            console.log("📡 API: Calling apiCreateSession", newId, patientId)
+            await apiCreateSession(newId, patientId)
             
             // Switch session first to ensure UI feels responsive
             switchSession(newId)

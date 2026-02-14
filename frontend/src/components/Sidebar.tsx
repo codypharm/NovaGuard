@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { History, FileText, Settings, Database, PlusCircle, LogOut, Trash2, User } from "lucide-react"
+import { History, FileText, Settings, Database, PlusCircle, LogOut, Trash2, User, Users } from "lucide-react"
 import { useSessionContext } from "@/context/SessionContext"
 import { toast } from "sonner"
 import {
@@ -127,9 +127,18 @@ export function Sidebar({ className }: SidebarProps) {
             Library
           </h2>
           <div className="space-y-1">
-            <Button variant="ghost" className="w-full justify-start h-10">
-              <FileText className="mr-2 h-4 w-4" />
-              Saved Reports
+            <Button 
+                variant="ghost" 
+                className={cn(
+                    "w-full justify-start h-10",
+                    activeModule === 'patient-database' && "bg-slate-100 text-slate-900 font-medium"
+                )}
+                onClick={() => {
+                    setActiveModule('patient-database')
+                }}
+            >
+              <Users className="mr-2 h-4 w-4" />
+              Patient Database
             </Button>
             <Button 
                 variant="ghost" 
@@ -139,7 +148,6 @@ export function Sidebar({ className }: SidebarProps) {
                 )}
                 onClick={() => {
                     setActiveModule('drug-operations')
-                    navigate("/") // Ensure we are on the main page which houses the modules
                 }}
             >
               <Database className="mr-2 h-4 w-4" />

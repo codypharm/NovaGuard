@@ -12,7 +12,13 @@ from nova_guard.models.patient import Patient
 async def get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
     """Retrieve a session by ID."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id).options(selectinload(Session.patient))
+        select(Session)
+        .where(Session.id == session_id)
+        .options(
+            selectinload(Session.patient).selectinload(Patient.drug_history),
+            selectinload(Session.patient).selectinload(Patient.allergies),
+            selectinload(Session.patient).selectinload(Patient.adverse_reactions),
+        )
     )
     return result.scalar_one_or_none()
 
@@ -53,8 +59,9 @@ async def update_session_patient(
             session.title = f"Patient #{patient.medical_record_number or patient.id} - {patient.name}"
             session.updated_at = datetime.utcnow()
             await db.flush()
-            await db.refresh(session)
-            return session
+            await db.flush()
+            # Reload to get full patient data
+            return await get_session(db, session_id)
 
     # 2. If no patient linked yet, try to set a descriptive title from content
     # Only update if title is still the default "New Session" to avoid overwriting custom renames (future proof)

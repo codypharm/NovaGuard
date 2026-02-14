@@ -61,6 +61,13 @@ export async function getPatient(id: number): Promise<Patient> {
   return res.json()
 }
 
+export async function getPatients(): Promise<Patient[]> {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_URL}/patients`, { headers })
+  if (!res.ok) throw new Error("Failed to fetch patients")
+  return res.json()
+}
+
 export async function processClinicalInteraction(
     sessionId: string,
     patientId: number | null,
@@ -288,9 +295,12 @@ export async function getSessions(limit: number = 20): Promise<Session[]> {
     return res.json()
 }
 
-export async function createSession(sessionId: string): Promise<void> {
+export async function createSession(sessionId: string, patientId?: number): Promise<void> {
     const formData = new FormData()
     formData.append("session_id", sessionId)
+    if (patientId) {
+        formData.append("patient_id", patientId.toString())
+    }
     
     const headers = await getAuthHeaders();
     const res = await fetch(`${API_URL}/sessions`, {
