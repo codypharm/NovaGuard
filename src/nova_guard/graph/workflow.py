@@ -9,7 +9,6 @@ from nova_guard.graph.nodes import (
     route_input,
     image_intake_node,
     text_intake_node,
-    voice_intake_node,
     fetch_patient_node,
     auditor_node,
     openfda_node,
@@ -46,7 +45,6 @@ def create_prescription_workflow(checkpointer=None):
     # Intake nodes
     workflow.add_node("image_intake", image_intake_node)
     workflow.add_node("text_intake", text_intake_node)
-    workflow.add_node("voice_intake", voice_intake_node)
     
     # Processing & Knowledge nodes
     workflow.add_node("fetch_patient", fetch_patient_node)
@@ -73,7 +71,6 @@ def create_prescription_workflow(checkpointer=None):
         {
             "image_intake": "image_intake",
             "text_intake": "text_intake",
-            "voice_intake": "voice_intake",
             "fetch_patient": "fetch_patient",
             "fetch_medical_knowledge": "fetch_medical_knowledge",
             "tools_node": "tools_node",
@@ -85,7 +82,6 @@ def create_prescription_workflow(checkpointer=None):
     workflow.add_edge("image_intake", "fetch_patient")
     workflow.add_edge("image_intake", "fetch_patient")
     # workflow.add_edge("text_intake", "fetch_patient") # Removed fixed edge
-    workflow.add_edge("voice_intake", "fetch_patient")
     
     # 3.5 Text Intake Routing (can go to fetch_patient OR tools_node based on parsed intent)
     def route_text_intake(state: PatientState):
@@ -102,7 +98,6 @@ def create_prescription_workflow(checkpointer=None):
             END: END
         }
     )
-    workflow.add_edge("voice_intake", "fetch_patient")
     
     # 4. Processing Pipeline Routing
     workflow.add_conditional_edges(

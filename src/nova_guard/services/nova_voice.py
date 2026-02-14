@@ -79,9 +79,6 @@ async def transcribe_audio_stream(audio_bytes: bytes) -> str:
                 # Small delay not strictly necessary but good for stability
                 await asyncio.sleep(0.01)
             
-                # Small delay not strictly necessary but good for stability
-                await asyncio.sleep(0.01)
-            
             # Since VAD is enforced and response.create/commit are not supported:
             # We append silence to trigger VAD "turn end".
             silence_bytes = bytes(24000 * 2 * 1) # 1 second of silence (24k * 2 bytes * 1s)

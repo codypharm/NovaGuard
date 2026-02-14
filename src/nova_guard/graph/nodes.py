@@ -204,7 +204,8 @@ async def text_intake_node(state: PatientState) -> dict:
     try:
         extracted_json_str = await bedrock_client.extract_entity(
             text=text,
-            prompt=extraction_prompt
+            prompt=extraction_prompt,
+            model=bedrock_client.MODEL_PRO # Use Pro for complex JSON structure
         )
         # Attempt to clean code blocks if present (Bedrock sometimes adds ```json ... ```)
         cleaned_json = extracted_json_str.replace("```json", "").replace("```", "").strip()
@@ -250,35 +251,7 @@ async def text_intake_node(state: PatientState) -> dict:
         # "messages": ["Could not extract prescription details. Please rephrase."]
     }
 
-def voice_intake_node(state: PatientState) -> dict:
-    """
-    Convert voice to text and extract prescription.
-    
-    Phase 1: Mock implementation
-    Phase 2: Will use Amazon Nova 2 Sonic via Bedrock
-    
-    In production, this would:
-    1. Send audio to Nova 2 Sonic
-    2. Get speech-to-text transcription
-    3. Parse the transcription
-    """
-    logger.info("Voice intake: processing voice prescription")
-    
-    # Mock extraction (Phase 1)
-    extracted = PrescriptionData(
-        drug_name="Metformin",
-        dose="500mg",
-        frequency="twice daily",
-        notes="Mock extraction from voice"
-    )
-    
-    confidence = 0.92
-    
-    return {
-        "extracted_data": extracted,
-        "confidence_score": confidence,
-        # "messages": [f"✅ Transcribed from voice: {extracted.drug_name} {extracted.dose}"]
-    }
+
 
 
 # ============================================================================

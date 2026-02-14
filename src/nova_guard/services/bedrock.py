@@ -174,10 +174,12 @@ class BedrockClient:
     # ========================================================================
     # RESTORED: Clinical Utilities & Entity Extraction
     # ========================================================================
-    async def extract_entity(self, text: str, prompt: str) -> str:
+    async def extract_entity(self, text: str, prompt: str, model: str = None) -> str:
         """
-        Uses Nova Micro to extract specific entities (drug names, dates, etc.) from text.
+        Uses Nova Micro (default) to extract specific entities.
+        Can override model for complex JSON extraction.
         """
+        target_model = model or self.MODEL_MICRO
         if not self.openai_client:
             return text
 
@@ -223,7 +225,7 @@ class BedrockClient:
         prompt = f"Analyze drug-drug interactions for: {', '.join(drugs)}. Include CYP450 details and clinical action."
         try:
             response = self.openai_client.chat.completions.create(
-                model=self.MODEL_MICRO,
+                model=self.MODEL_PRO, # Upgraded to Pro for safety
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
