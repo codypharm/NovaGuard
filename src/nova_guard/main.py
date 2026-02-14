@@ -107,6 +107,35 @@ async def health_check():
 
 
 # ============================================================================
+# Voice Transcription
+# ============================================================================
+
+from nova_guard.services.nova_voice import transcribe_audio_stream
+
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """Transcribe uploaded audio file using Nova Realtime API."""
+    try:
+        audio_bytes = await file.read()
+        
+        # Simple heuristic: If WAV, strip header (44 bytes standard, but can vary)
+        # Nova expects raw PCM 16-bit 24kHz.
+        is_wav = file.content_type == "audio/wav" or (file.filename and file.filename.endswith(".wav"))
+        
+        if is_wav and len(audio_bytes) > 44:
+             # Strip minimal 44-byte header. Ideally we'd parse RIFF but this is robust enough for our known frontend recorder
+             raw_pcm = audio_bytes[44:] 
+        else:
+             raw_pcm = audio_bytes
+             
+        transcript = await transcribe_audio_stream(raw_pcm)
+        return {"text": transcript}
+    except Exception as e:
+        logging.error(f"Transcription failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
 # Patient Endpoints
 # ============================================================================
 

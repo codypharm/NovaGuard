@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, User as UserIcon, Bot, Paperclip, X, Mic } from "lucide-react"
+import { Send, User as UserIcon, Bot, Paperclip, X, Mic, Loader2, Square } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getSessionHistory } from '@/services/api'
+import { getSessionHistory, transcribeAudio } from '@/services/api'
+import { useAudioRecorder } from "../hooks/useAudioRecorder"
 
 
 interface Message {
@@ -36,6 +37,31 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Voice Input Hook
+  const { isRecording, startRecording, stopRecording } = useAudioRecorder()
+  const [isTranscribing, setIsTranscribing] = useState(false)
+
+  const handleMicClick = async () => {
+      if (isRecording) {
+            const audioBlob = await stopRecording()
+            if (audioBlob.size > 0) {
+                setIsTranscribing(true)
+                try {
+                    const { text } = await transcribeAudio(audioBlob)
+                    if (text) {
+                        setInput(prev => prev + (prev ? " " : "") + text)
+                    }
+                } catch (err) {
+                    console.error("Transcription failed", err)
+                } finally {
+                    setIsTranscribing(false)
+                }
+            }
+      } else {
+          startRecording()
+      }
+  }
 
   // Load History on Session Change
   useEffect(() => {
@@ -352,10 +378,27 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                      <Button 
                         size="icon" 
                         variant="ghost"
-                        className="h-8 w-8 rounded-full text-slate-400 hover:bg-slate-100 hover:text-teal-600"
-                        title="Voice Input (Coming Soon)"
+                        className={cn(
+                            "h-8 w-8 rounded-full transition-all duration-200 relative",
+                            isRecording 
+                                ? "bg-red-500 text-white hover:bg-red-600 hover:text-white shadow-md ring-4 ring-red-100" 
+                                : "text-slate-400 hover:bg-slate-100 hover:text-teal-600",
+                            isTranscribing && "opacity-50 cursor-not-allowed"
+                        )}
+                        onClick={handleMicClick}
+                        disabled={isTranscribing}
+                        title={isRecording ? "Stop Recording" : "Voice Input"}
                      >
-                        <Mic className="h-4 w-4" />
+                        {isRecording && (
+                            <span className="absolute -inset-1 rounded-full bg-red-400 opacity-20 animate-ping pointer-events-none"></span>
+                        )}
+                        {isTranscribing ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : isRecording ? (
+                            <Square className="h-3 w-3 fill-current" />
+                        ) : (
+                            <Mic className="h-4 w-4" />
+                        )}
                      </Button>
                      <Button 
                         size="sm" 

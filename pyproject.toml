@@ -36,6 +36,7 @@ dependencies = [
     "valyu-agentcore[agentcore]>=0.1.3",
     "cachetools>=7.0.1",
     "aiofiles>=25.1.0",
+    "websockets>=13.0",
 ]
 
 [project.optional-dependencies]

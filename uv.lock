@@ -1487,6 +1487,7 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
     { name = "valyu" },
     { name = "valyu-agentcore", extra = ["agentcore"] },
+    { name = "websockets" },
 ]
 
 [package.optional-dependencies]
@@ -1528,6 +1529,7 @@ requires-dist = [
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
     { name = "valyu", specifier = ">=2.5.5" },
     { name = "valyu-agentcore", extras = ["agentcore"], specifier = ">=0.1.3" },
+    { name = "websockets", specifier = ">=13.0" },
 ]
 provides-extras = ["dev"]
 

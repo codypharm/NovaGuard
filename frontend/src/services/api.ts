@@ -99,6 +99,26 @@ export async function processClinicalInteraction(
     return res.json()
 }
 
+export async function transcribeAudio(audioBlob: Blob): Promise<{ text: string }> {
+    const formData = new FormData();
+    formData.append("file", audioBlob, "recording.wav");
+    
+    const reqHeaders: any = await getAuthHeaders();
+    
+    const res = await fetch(`${API_URL}/transcribe`, {
+        method: "POST",
+        headers: reqHeaders,
+        body: formData
+    });
+    
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(err || "Failed to transcribe audio");
+    }
+    
+    return res.json();
+}
+
 // ============================================================================
 // Streaming API (SSE via fetch + ReadableStream)
 // ============================================================================
