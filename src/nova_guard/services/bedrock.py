@@ -19,7 +19,7 @@ class BedrockClient:
     # Model IDs (Nova OpenAI-compatible)
     # Using v1 models as v2 seems restricted/unavailable for this account
     MODEL_MICRO = "nova-micro-v1" 
-    MODEL_LITE = "nova-lite-v1"
+    MODEL_LITE = "nova-2-lite-v1"
     MODEL_PRO = "nova-pro-v1"
     
     def _clean_json(self, text: str) -> str:
@@ -144,18 +144,70 @@ class BedrockClient:
         if not self.openai_client:
             return ""
 
-        system_prompt = (
-            "You are an evidence-based clinical pharmacist and drug information specialist. "
-            "Provide a detailed, structured research summary covering:\n"
-            "- Mechanism of action\n"
-            "- Pharmacokinetics (absorption, metabolism, half-life)\n"
-            "- Key clinical evidence and landmark trials\n"
-            "- Common and serious adverse effects\n"
-            "- Important drug interactions (with CYP450 pathways)\n"
-            "- Special population considerations (renal, hepatic, pediatric, geriatric, pregnancy)\n\n"
-            "Use precise pharmacological language. Cite landmark studies where relevant. "
-            "If the query is about multiple drugs, address each one clearly."
-        )
+        system_prompt = """You are an evidence-based clinical pharmacist and drug information specialist.
+
+            For the given drug(s), provide a comprehensive, structured research summary in valid JSON format.
+
+            REQUIRED JSON STRUCTURE:
+            {
+            "drugs": [
+                {
+                "drug_name": "string",
+                "mechanism_of_action": "string (150-300 words)",
+                "pharmacokinetics": {
+                    "absorption": "string",
+                    "distribution": "string (Vd, protein binding)",
+                    "metabolism": "string (CYP pathways, metabolites)",
+                    "elimination": "string (route, half-life)",
+                    "bioavailability": "string"
+                },
+                "clinical_evidence": [
+                    {
+                    "study_name": "string",
+                    "citation": "string (Author Year, Journal)",
+                    "key_findings": "string",
+                    "level_of_evidence": "string"
+                    }
+                ],
+                "adverse_effects": {
+                    "common": ["list of effects with frequency"],
+                    "serious": ["list with description"],
+                    "black_box_warnings": ["if applicable"]
+                },
+                "drug_interactions": {
+                    "major": [
+                    {
+                        "interacting_drug": "string",
+                        "mechanism": "string (CYP450 or other)",
+                        "clinical_significance": "string"
+                    }
+                    ],
+                    "moderate": ["brief list"]
+                },
+                "special_populations": {
+                    "renal_impairment": "dosing adjustments and considerations",
+                    "hepatic_impairment": "dosing adjustments and considerations",
+                    "pediatric": "safety and dosing considerations",
+                    "geriatric": "special considerations",
+                    "pregnancy": "category/data and recommendations",
+                    "lactation": "safety data"
+                },
+                "clinical_pearls": ["2-4 key practice points"]
+                }
+            ],
+            "summary": "Brief comparative summary if multiple drugs",
+            "references": ["Complete reference list"]
+            }
+
+            GUIDELINES:
+            - Use precise pharmacological terminology
+            - Cite 3-5 landmark trials per drug where available
+            - Include specific numerical data (half-lives, protein binding %, etc.)
+            - For CYP interactions, specify substrate/inhibitor/inducer status
+            - If data is limited or unavailable for a section, state this explicitly
+            - If a drug name is ambiguous or not found, request clarification
+
+            Return ONLY valid JSON, no additional text before or after."""
 
         try:
             response = self.openai_client.chat.completions.create(
@@ -164,7 +216,8 @@ class BedrockClient:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": query}
                 ],
-                temperature=0.2
+                temperature=0.2,
+                
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -264,6 +317,102 @@ class BedrockClient:
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)
     # ========================================================================
+    
+    # ========================================================================
+    # NEW: AI SAFETY FALLBACK (For non-FDA drugs)
+    # ========================================================================
+    async def get_ai_safety_flags(self, drug_name: str, patient_profile: dict) -> List[Any]:
+        """
+        Generates safety flags using Nova Pro when FDA label is missing.
+        """
+        from nova_guard.schemas.patient import SafetyFlag
+        import json
+        
+        if not self.openai_client:
+            return []
+
+        # Convert profile to string for prompt
+        # Use a minimal representation to avoid confusing the model
+        minimal_profile = {
+            "age": patient_profile.get("age_years"),
+            "pregnant": patient_profile.get("is_pregnant"),
+            "nursing": patient_profile.get("is_nursing"),
+            "egfr": patient_profile.get("egfr"),
+            "allergies": [a.get("allergen") for a in patient_profile.get("allergies", [])],
+            "current_meds": [m.get("drug_name") for m in patient_profile.get("current_drugs", [])],
+            "conditions": patient_profile.get("conditions", []) 
+        }
+        profile_str = json.dumps(minimal_profile, default=str)
+        
+        system_prompt = """
+        You are a highly conservative clinical safety auditor.
+        The user has requested a safety check for a drug that has NO FDA LABEL (likely international or unapproved in US).
+        You must use your internal pharmacological knowledge to identify critical safety issues.
+
+        Analyze the drug against the patient profile.
+        Check for:
+        1. Contraindications (Absolute)
+        2. Major Drug-Drug Interactions (with current meds)
+        3. Pregnancy/Lactation Risks
+        4. Renal/Hepatic Adjustments
+        5. Black Box Warnings (Global consensus)
+
+        Return a JSON object with a list of flags:
+        {
+            "flags": [
+                {
+                    "severity": "critical" | "warning" | "info",
+                    "category": "contraindication" | "interaction" | "pregnancy" | "dosing" | "warning",
+                    "message": "Clear, concise clinical warning message.",
+                    "citation": "International Label / Clinical Pharmacology"
+                }
+            ]
+        }
+        
+        If no major issues found, return {"flags": []}.
+        Be conservative. If unsure, flag as warning "Insufficient Data".
+        """
+
+        try:
+            prompt = f"Drug: {drug_name}\nPatient Profile: {profile_str}"
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_PRO,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.0
+            )
+            
+            content = self._clean_json(response.choices[0].message.content)
+            data = json.loads(content)
+            
+            flags = []
+            for item in data.get("flags", []):
+                flags.append(SafetyFlag(
+                    severity=item.get("severity", "warning"),
+                    category=item.get("category", "general"),
+                    message=f"⚠️ {item.get('message')} (AI-Generated)",
+                    source="Clinical Knowledge (FDA Label Unavailable)",
+                    citation=item.get("citation")
+                ))
+            return flags
+            
+        except Exception as e:
+            logger.error("AI Safety Fallback failed: %s", e)
+            return [
+                SafetyFlag(
+                    severity="warning",
+                    category="system_error",
+                    message=f"Could not perform safety check for {drug_name} (Label Missing & AI Failed)",
+                    source="System",
+                    citation=None
+                )
+            ]
+
+    # ========================================================================
+    # EXISTING: Image Processing (Boto3 / Nova Lite)
+    # ========================================================================
     async def process_image(self, image_bytes: bytes) -> Optional[PrescriptionData]:
         """
         Extract prescription data from an image using Nova Pro via the
@@ -276,10 +425,13 @@ class BedrockClient:
 
         prompt = """
         Analyze this prescription image. Extract the following fields as JSON:
-        - drug_name (e.g., "Lisinopril")
-        - dose (e.g., "10mg")
-        - frequency (e.g., "daily")
+        - drug_names  ( list of drugs e.g., "Lisinopril", "Losartan", "Amlodipine")
+        - doses ( list of doses associated with each drug in the same order as drug_names e.g., "10mg", "20mg", "5mg")
+        - frequencies ( list of frequencies associated with each drug in the same order as drug_names e.g., "daily", "twice daily", "three times daily")
         - prescriber (optional, e.g., "Dr. Smith")
+        - date (optional, e.g., "2022-01-01")
+        - patient_name (optional, e.g., "John Doe")
+        
         
         Return ONLY valid JSON with these exact keys.
         """
@@ -289,7 +441,7 @@ class BedrockClient:
 
             # OpenAI vision format: image_url with base64 data URI
             response = self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=[
                     {
                         "role": "user",

@@ -143,7 +143,7 @@ class OpenFDAClient:
             flags.append(SafetyFlag(
                 severity="warning",
                 category="drug_interaction",
-                message=f"💊 DRUG INTERACTIONS: {interactions[:200]}...",
+                message=f"DRUG INTERACTIONS: {interactions}...",
                 source="OpenFDA",
                 citation=citation
             ))

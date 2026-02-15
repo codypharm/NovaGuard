@@ -129,8 +129,8 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                      verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
                   </h3>
                   <p className="text-white/90 text-sm">
-                    {verdict.status === "green" ? "No interactions found." :
-                     "Please review the flags below before proceeding."}
+                    {verdict.status === "green" ? "Acceptable to dispense." :
+                     verdict.status === "yellow" ? "Please review the flags below before proceeding." : "Do not dispense."}
                   </p>
                 </div>
              </div>

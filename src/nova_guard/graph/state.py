@@ -34,7 +34,7 @@ class PatientState(TypedDict):
     # Extracted Data (normalized from any input modality)
     # ========================================================================
     prescriptions: list[PrescriptionData]  # List of all extracted drugs
-    extracted_data: Optional[PrescriptionData]  # DEPRECATED: kept for backward compat temporarily
+    extracted_data: Optional[PrescriptionData] | None  # DEPRECATED: kept for backward compat temporarily
     confidence_score: float  # 0.0 to 1.0 (90% threshold for HITL)
     
     # ========================================================================

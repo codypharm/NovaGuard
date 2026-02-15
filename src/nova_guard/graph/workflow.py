@@ -127,7 +127,6 @@ def create_prescription_workflow(checkpointer=None):
     
     # Checkpointer is now passed in or None (memory is default/fallback, but we want Postgres)
     # If checkpointer is None, we can default to MemorySaver for dev/tests if needed, 
-    # but for this refactor we expect it to be passed in.
     
     return workflow.compile(checkpointer=checkpointer)
 

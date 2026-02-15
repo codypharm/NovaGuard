@@ -30,8 +30,8 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
 
         Classify the input into **exactly one** of these categories:
 
-        AUDIT          - processing a new prescription (image, typed Rx, voice dictation)
-        CLINICAL_QUERY - question about this specific patient based on mrn number or name 
+        AUDIT          - processing a new prescription (image, or text)
+        CLINICAL_QUERY - question about a specific patient based on mrn number or name 
         MEDICAL_KNOWLEDGE - general pharmacology / drug information question
         SYSTEM_ACTION  - user requests an action (open source, generate report, etc.)
         GENERAL_CHAT   - greeting, thanks, meta conversation, off-topic
@@ -94,25 +94,18 @@ async def image_intake_node(state: PatientState) -> dict:
     extracted = await bedrock_client.process_image(image_bytes)
     
     if not extracted:
-        # Fallback for Phase 2 if credentials fail
-        logger.warning("Bedrock processing failed, falling back to mock")
-        extracted = PrescriptionData(
-            drug_name="Lisinopril",
-            dose="10mg",
-            frequency="once daily",
-            prescriber="Dr. Smith (Mock - Bedrock Failed)",
-            notes="Fallback extraction"
-        )
+        # Safety: Do not fall back to mock data in production/test.
+        logger.error("Bedrock image processing failed - returning error state")
         return {
-            "extracted_data": extracted,
+            "extracted_data": None,
             "input_type": "image",
-            # "messages": ["⚠️ Image analysis failed (Check AWS Creds), using Mock"]
+            # "messages": [" Image analysis failed. Please try again or type the prescription manually."]
         }
         
     return {
         "extracted_data": extracted,
         "input_type": "image",
-        "confidence_score": 0.95, # Nova Lite doesn't give a score easily, assume high if success
+        # "confidence_score": 0.95, # Nova Lite doesn't give a score easily, assume high if success
         # "messages": ["✅ Image analysis complete (Nova Lite)"]
     }
 
@@ -167,7 +160,7 @@ async def text_intake_node(state: PatientState) -> dict:
                     frequency="N/A",
                     notes="Safety / clinical query"
                 ),
-                "confidence_score": 0.85,
+                # "confidence_score": 0.85,
                 # "messages": [f"🔍 Clinical query detected — drug: **{drug}**"]
             }
 
@@ -236,7 +229,6 @@ async def text_intake_node(state: PatientState) -> dict:
             return {
                 "prescriptions": prescriptions_list,
                 "extracted_data": prescriptions_list[0], # Backward compat
-                "confidence_score": 0.90,
                 # "messages": [f"Prescription extracted: {len(prescriptions_list)} drugs found ({', '.join(p.drug_name for p in prescriptions_list)})"]
             }
 
@@ -247,7 +239,6 @@ async def text_intake_node(state: PatientState) -> dict:
     return {
         "prescriptions": [],
         "extracted_data": None,
-        "confidence_score": 0.40,
         # "messages": ["Could not extract prescription details. Please rephrase."]
     }
 
@@ -609,7 +600,7 @@ async def assistant_node(state: PatientState) -> dict:
         • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
         • Answer only the current question — do not add unsolicited information
         • Think step-by-step before answering safety-sensitive questions
-
+        • Always include references stored in references: {state.get('research_report', '')}
         Reply professionally, clearly and helpfully.
         """
 
@@ -687,9 +678,9 @@ async def openfda_node(state: PatientState) -> dict:
     logger.info("Running OpenFDA safety checks")
     
     prescriptions = state.get("prescriptions", [])
-    profile = state.get("patient_profile")
-    
-    if not prescriptions or not profile:
+    profile = state.get("patient_profile") or {} # Safely handle None profile
+    logger.info(f"prescriptions here: {prescriptions}")
+    if not prescriptions:
         return {
             "safety_flags": [],
             # "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
@@ -703,8 +694,18 @@ async def openfda_node(state: PatientState) -> dict:
             drug_name=rx.drug_name,
             patient_profile=profile
         )
+        
+        # Check if we got any actual FDA label data (vs just recalls or normalization info)
+        has_fda_label_data = any(f.source == "OpenFDA" for f in flags)
+        
+        if not has_fda_label_data:
+            logger.warning(f"No FDA label data found for {rx.drug_name} — triggering AI Fallback")
+            from nova_guard.services.bedrock import bedrock_client
+            ai_flags = await bedrock_client.get_ai_safety_flags(rx.drug_name, profile)
+            flags.extend(ai_flags)
+            
         all_new_flags.extend(flags)
-    
+    logger.info(f"all new flags: {all_new_flags}")
     # Combine with existing flags (from auditor node)
     existing_flags = state.get("safety_flags", [])
     combined_flags = existing_flags + all_new_flags
@@ -717,7 +718,7 @@ async def openfda_node(state: PatientState) -> dict:
 
 def verdict_node(state: PatientState) -> dict:
     from nova_guard.schemas.patient import SafetyVerdict
-
+    logger.info(f"safety flags: {state.get('safety_flags')}")
     flags = state.get("safety_flags", [])
 
     critical = any(f.severity == "critical" for f in flags)
@@ -737,7 +738,7 @@ def verdict_node(state: PatientState) -> dict:
         status=status,
         flags=flags,
         recommendation=msg,
-        confidence_score=state.get("confidence_score", 0.0)
+        # confidence_score=state.get("confidence_score", 0.0)
     )
 
     return {

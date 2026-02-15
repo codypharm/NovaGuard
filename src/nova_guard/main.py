@@ -5,6 +5,12 @@ from typing import AsyncGenerator, Optional, List, Dict, Any
 import logging
 import os
 
+# Configure logging to ensure we see INFO logs from all modules
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Form, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -392,7 +398,6 @@ _NODE_LABELS = {
     "gateway_supervisor": "Classifying your request…",
     "image_intake": "Reading prescription image…",
     "text_intake": "Parsing prescription text…",
-    "voice_intake": "Transcribing voice input…",
     "fetch_patient": "Loading patient profile…",
     "fetch_medical_knowledge": "Searching medical literature…",
     "auditor": "Analyzing prescriptions…",

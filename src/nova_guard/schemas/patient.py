@@ -150,6 +150,8 @@ class PrescriptionData(BaseModel):
     frequency: str
     prescriber: Optional[str] = None
     notes: Optional[str] = None
+    date: Optional[str] = None
+    patient_name: Optional[str] = None
 
 
 class PrescriptionInput(BaseModel):
@@ -181,4 +183,4 @@ class SafetyVerdict(BaseModel):
     status: Literal["green", "yellow", "red"]
     flags: list[SafetyFlag]
     recommendation: str
-    confidence_score: float = Field(..., ge=0.0, le=1.0)
+    confidence_score: Optional[float] = Field(None, ge=0.0, le=1.0)
