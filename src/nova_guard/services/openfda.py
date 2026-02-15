@@ -70,8 +70,8 @@ class OpenFDAClient:
                         if data.get("results"):
                             return data["results"][0]
                     except Exception as e3:
-                         logger.warning("All OpenFDA searches failed for '%s': %s", drug_name, e3)
-                         return None
+                        logger.warning("All OpenFDA searches failed for '%s': %s", drug_name, e3)
+                        return None
             
             logger.error("OpenFDA API error for '%s': %s", drug_name, e)
             return None
@@ -462,8 +462,16 @@ class OpenFDAClient:
         # If we did a global search, we might get a label for "Drug A" that mentions "Drug B"
         # We need to warn the user if the returned label isn't actually for the requested drug.
         
-        returned_brand = (self._extract_field(label, "brand_name") or "").lower()
-        returned_generic = (self._extract_field(label, "generic_name") or "").lower()
+        # Helper to get names from openfda metadata
+        def _get_openfda_name(lbl: dict, field: str) -> str:
+            openfda = lbl.get("openfda", {})
+            val = openfda.get(field)
+            if isinstance(val, list):
+                return " ".join(val)
+            return val or ""
+
+        returned_brand = (_get_openfda_name(label, "brand_name")).lower()
+        returned_generic = (_get_openfda_name(label, "generic_name")).lower()
         target_name = check_name.lower()
         
         # Check if target is in the returned names
@@ -474,7 +482,7 @@ class OpenFDAClient:
              all_flags.append(SafetyFlag(
                 severity="warning",
                 category="mismatch",
-                message=f"⚠️ INDIRECT MATCH: Found label for '{returned_brand or returned_generic}', which mentions '{check_name}'. Dosing may not apply directly.",
+                message=f"⚠️ INDIRECT MATCH: Found label for '{returned_brand or returned_generic or 'Unknown Drug'}', which mentions '{check_name}'. Dosing may not apply directly.",
                 source="OpenFDA",
                 citation=self._get_citation(label)
             ))
