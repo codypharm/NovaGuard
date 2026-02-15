@@ -15,6 +15,7 @@ export interface Verdict {
   status: "green" | "yellow" | "red"
   flags: SafetyFlag[]
   recommendation?: string
+  confidence_score?: number
 }
 
 interface SafetyAnalysisProps {
@@ -51,6 +52,11 @@ export function SafetyAnalysis({ isProcessing, verdict }: SafetyAnalysisProps) {
                             {verdict.status === "green" ? "No safety concerns detected." :
                              "Please review the flags below before proceeding."}
                         </p>
+                        {verdict.confidence_score !== undefined && (
+                            <div className="mt-2 inline-flex items-center rounded-full bg-black/20 px-3 py-1 text-xs font-medium backdrop-blur-sm">
+                                {Math.round(verdict.confidence_score * 100)}% Confidence
+                            </div>
+                        )}
                     </div>
                 </div>
 

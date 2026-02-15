@@ -123,7 +123,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                 verdict.status === "green" ? "bg-emerald-500" :
                 verdict.status === "yellow" ? "bg-amber-500" : "bg-rose-500"
               )}>
-                <div className="flex-1">
+                <div className="flex-1 text-white">
                   <h3 className="font-bold text-lg text-white">
                     {verdict.status === "green" ? "SAFE TO DISPENSE" :
                      verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
