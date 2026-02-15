@@ -600,7 +600,7 @@ async def assistant_node(state: PatientState) -> dict:
         • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
         • Answer only the current question — do not add unsolicited information
         • Think step-by-step before answering safety-sensitive questions
-        • Always include references stored in references: {state.get('research_report', '')}
+        • Always include references stored in references: {state.get('research_report', '')} if they are available
         Reply professionally, clearly and helpfully.
         """
 
@@ -719,10 +719,19 @@ async def openfda_node(state: PatientState) -> dict:
 def verdict_node(state: PatientState) -> dict:
     from nova_guard.schemas.patient import SafetyVerdict
     logger.info(f"safety flags: {state.get('safety_flags')}")
-    flags = state.get("safety_flags", [])
+    all_flags = state.get("safety_flags", [])
 
-    critical = any(f.severity == "critical" for f in flags)
-    warning  = any(f.severity == "warning"  for f in flags)
+    # Filter flags for verdict calculation (same logic as Frontend)
+    # We don't want "normalization" or generic "adverse_reaction" to trigger Red/Yellow
+    relevant_flags = [
+        f for f in all_flags 
+        if f.category != "normalization"
+        and not (f.category == "adverse_reaction" and f.source == "OpenFDA")
+        and not (f.category == "mismatch" and "''" in f.message)
+    ]
+
+    critical = any(f.severity == "critical" for f in relevant_flags)
+    warning  = any(f.severity == "warning"  for f in relevant_flags)
 
     if critical:
         status = "red"
@@ -736,7 +745,7 @@ def verdict_node(state: PatientState) -> dict:
 
     verdict = SafetyVerdict(
         status=status,
-        flags=flags,
+        flags=all_flags, # Keep ALL flags in the object, frontend filters display
         recommendation=msg,
         # confidence_score=state.get("confidence_score", 0.0)
     )

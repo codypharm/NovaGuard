@@ -62,7 +62,21 @@ export function SafetyAnalysis({ isProcessing, verdict }: SafetyAnalysisProps) {
 
                 {/* FLAGS LIST */}
                 <div className="space-y-3">
-                    {verdict.flags.map((flag, i) => (
+                    {verdict.flags
+                        .filter(flag => {
+                            // 1. Hide Normalization info (too technical/spammy)
+                            if (flag.category === "normalization") return false;
+                            
+                            // 2. Hide Generic Adverse Reactions (huge lists, repeats warnings)
+                            // Only show if it's specific to the patient (source != "OpenFDA")
+                            if (flag.category === "adverse_reaction" && flag.source === "OpenFDA") return false;
+
+                            // 3. Hide Mismatch warnings if they are empty/redundant (backend fixed, but safety net)
+                            if (flag.category === "mismatch" && flag.message.includes("''")) return false;
+
+                            return true;
+                        })
+                        .map((flag, i) => (
                         <Card key={i} className="border-l-4 border-l-slate-300 overflow-hidden">
                             <CardContent className="p-4 flex gap-4">
                                  <div className={cn(
