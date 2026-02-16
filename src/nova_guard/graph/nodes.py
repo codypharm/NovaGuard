@@ -729,7 +729,7 @@ async def clinical_safety_node(state: PatientState) -> dict:
         if label:
             # D. Structured Checks (DailyMed / RxClass)
             # Beers Criteria (Geriatric)
-            if profile.get("age_years", 0) >= 65:
+            if (profile.get("age_years") or 0) >= 65:
                 beers_flag = await clinical_service.check_beers_criteria(rx.drug_name, profile.get("age_years"))
                 if beers_flag: all_flags.append(beers_flag)
                 
