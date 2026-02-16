@@ -352,12 +352,18 @@ async def process_clinical_interaction(
 
         last_msg = result.get("messages", [])[-1] if result.get("messages") else None
         
+        # Check for AI failure message
+        is_failure = False
+        content = get_msg_content(last_msg) if last_msg else ""
+        if content and content == "I'm sorry, I'm having trouble processing that clinical question right now.":
+            is_failure = True
+
         return {
             "status": "completed",
             "intent": result.get("intent"),
-            "verdict": result.get("verdict"),
-            "assistant_response": get_msg_content(last_msg) if last_msg else None,
-            "safety_flags": result.get("safety_flags", [])
+            "verdict": result.get("verdict") if not is_failure else None,
+            "assistant_response": content,
+            "safety_flags": result.get("safety_flags", []) if not is_failure else []
         }
 
     except Exception as e:

@@ -162,9 +162,9 @@ class ClinicalKnowledgeService:
         text = " ".join(warnings) if isinstance(warnings, list) else str(warnings)
         
         return SafetyFlag(
-            severity="critical",
+            severity="warning",
             category="boxed_warning",
-            message=f"⚫ BOXED WARNING: {text[:300]}...",
+            message=f"⚫ BOXED {text[:300]}...",
             source="DailyMed / OpenFDA",
             citation=f"https://dailymed.nlm.nih.gov/"
         )
@@ -270,21 +270,24 @@ class ClinicalKnowledgeService:
             severity = "warning"
             if creatinine_clearance < 30: severity = "critical"
             
-            # Extract a snippet
-            snippet = "Refer to label for renal dosing."
-            sentences = text.split('.')
-            for s in sentences:
-                if any(k in s for k in validation_keywords):
-                    snippet = s.strip()
-                    break
-            
-            flags.append(SafetyFlag(
-                severity=severity,
-                category="renal_dosing",
-                message=f"🚽 RENAL ADJUSTMENT (CrCl {creatinine_clearance} mL/min): {snippet[:300]}...",
-                source="DailyMed (Dosage/PK)",
-                citation="https://dailymed.nlm.nih.gov/"
-            ))
+            # 3. Check for specific adjustments
+            # Split text into lines/sentences to find relevant dosing instructions
+            relevant_lines = [s.strip() for s in text.split('.') if s.strip()]
+            matches = []
+            for line in relevant_lines:
+                line_lower = line.lower()
+                if any(k in line_lower for k in ["creatinine clearance", "crcl", "renal impairment", "kidney"]):
+                    matches.append(line)
+
+            if matches:
+                # Found relevant dosing instruction
+                flags.append(SafetyFlag(
+                    severity=severity, # Use dynamically determined severity
+                    category="renal_dosing",
+                    message=f"🚽 [{drug_name}] RENAL ADJUSTMENT (CrCl {creatinine_clearance} mL/min): {matches[0][:200]}...",
+                    source="DailyMed (Section 2.2/12.3)",
+                    citation="https://dailymed.nlm.nih.gov/"
+                ))
         return flags
 
     # ========================================================================
@@ -309,9 +312,9 @@ class ClinicalKnowledgeService:
         
         if contraindications:
             flags.append(SafetyFlag(
-                severity="critical",
+                severity="warning",
                 category="contraindication",
-                message=f"⛔ CONTRAINDICATION: {contraindications[:300]}...",
+                message=f"⚠️ [{drug_name}] CONTRAINDICATION: {contraindications[:300]}...",
                 source="DailyMed / OpenFDA",
                 citation="https://dailymed.nlm.nih.gov/"
             ))
@@ -347,7 +350,7 @@ class ClinicalKnowledgeService:
             flags.append(SafetyFlag(
                 severity="critical",
                 category="pregnancy",
-                message=f"🤰 PREGNANCY CONTRAINDICATION ({category or 'Unsafe'}): {pregnancy_text[:150]}...",
+                message=f"🤰 [{drug_name}] PREGNANCY CONTRAINDICATION ({category or 'Unsafe'}): {pregnancy_text[:150]}...",
                 source="DailyMed / OpenFDA",
                 citation=citation
             ))
@@ -355,7 +358,7 @@ class ClinicalKnowledgeService:
             flags.append(SafetyFlag(
                 severity="warning",
                 category="pregnancy",
-                message=f"🤰 PREGNANCY RISK ({category or 'Caution'}): {pregnancy_text[:150]}...",
+                message=f"🤰 [{drug_name}] PREGNANCY RISK ({category or 'Caution'}): {pregnancy_text[:150]}...",
                 source="DailyMed / OpenFDA",
                 citation=citation
             ))
@@ -383,7 +386,7 @@ class ClinicalKnowledgeService:
                 flags.append(SafetyFlag(
                     severity="critical",
                     category="allergy",
-                    message=f"🚨 ALLERGY ALERT: Patient allergic to '{allergen}' (Direct match with prescribed drug).",
+                    message=f"🚨 [{drug_name}] ALLERGY ALERT: Patient allergic to '{allergen}' (Direct match).",
                     source="Patient History",
                     citation="Patient Profile"
                 ))
@@ -420,7 +423,7 @@ class ClinicalKnowledgeService:
                             flags.append(SafetyFlag(
                                 severity="warning",
                                 category="cross_reactivity",
-                                message=f"⚠️ CROSS-REACTIVITY: drug '{drug_name}' belongs to class '{matched_class}', which matches patient allergy '{allergen}'.",
+                                message=f"⚠️ [{drug_name}] CROSS-REACTIVITY: drug belongs to class '{matched_class}', which matches patient allergy '{allergen}'.",
                                 source="RxClass (Chemical Structure)",
                                 citation="https://rxnav.nlm.nih.gov/RxClass"
                             ))
@@ -462,7 +465,7 @@ class ClinicalKnowledgeService:
                         flags.append(SafetyFlag(
                             severity="warning",
                             category="cross_reactivity",
-                            message=f"⚠️ {data.get('reason')} (AI-Verified Risk)",
+                            message=f"⚠️ [{drug_name}] {data.get('reason')} (AI-Verified Risk)",
                             source="Nova Lite (Clinical Reasoning)",
                             citation="Clinical Pharmacology"
                         ))

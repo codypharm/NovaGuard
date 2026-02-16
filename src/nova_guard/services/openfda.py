@@ -66,9 +66,15 @@ class OpenFDAClient:
                         params["search"] = f'"{drug_name}"'
                         response = await self.client.get(self.BASE_URL, params=params)
                         response.raise_for_status()
+                        response.raise_for_status()
                         data = response.json()
                         if data.get("results"):
-                            return data["results"][0]
+                            # VALIDATION: Ensure the returned label actually belongs to the drug
+                            candidate = data["results"][0]
+                            if self._validate_label_match(candidate, drug_name):
+                                return candidate
+                            else:
+                                logger.warning(f"Global search returned unrelated label for '{drug_name}'")
                     except Exception as e3:
                         logger.warning("All OpenFDA searches failed for '%s': %s", drug_name, e3)
                         return None
@@ -78,6 +84,24 @@ class OpenFDAClient:
         except Exception as e:
             logger.error("Unexpected OpenFDA error for '%s': %s", drug_name, e)
             return None
+
+    def _validate_label_match(self, label: dict, drug_name: str) -> bool:
+        """
+        Check if the returned label actually matches the drug name.
+        This prevents getting a 'Pilocarpine' label when searching for 'Paracetamol'
+        just because Pilocarpine mentions Paracetamol in interactions.
+        """
+        openfda = label.get("openfda", {})
+        brands = [b.lower() for b in openfda.get("brand_name", [])]
+        generics = [g.lower() for g in openfda.get("generic_name", [])]
+        
+        name_lower = drug_name.lower()
+        
+        # 1. Exact/Partial match in brand or generic fields
+        if any(name_lower in b for b in brands) or any(name_lower in g for g in generics):
+            return True
+            
+        return False
     
     def _extract_field(self, label: dict, field: str) -> Optional[str]:
         """Extract a field from the drug label, joining arrays if needed."""
@@ -124,15 +148,38 @@ class OpenFDAClient:
             data = response.json()
             
             results = data.get("results", [])
+            seen_reasons = []  # List of (simplified_reason, full_reason)
+            
             for recall in results:
+                reason = recall.get("reason_for_recall", "")
+                simp = " ".join(reason.lower().split())
+                
+                # Substring Deduplication:
+                # If this reason is contained in an existing one (or vice versa), skip/merge.
+                is_duplicate = False
+                for i, (existing_simp, existing_full) in enumerate(seen_reasons):
+                    if simp in existing_simp: # New is shorter/subset of existing -> Skip new
+                        is_duplicate = True
+                        break
+                    elif existing_simp in simp: # New is longer/superset -> Replace existing? 
+                        # Ideally we keep the one already added OR replace it. 
+                        # For simplicity, let's just duplicate-check.
+                        is_duplicate = True
+                        break
+                
+                if is_duplicate:
+                    continue
+                    
+                seen_reasons.append((simp, reason))
+                
                 flags.append(SafetyFlag(
-                    severity="critical",
+                    severity="warning",
                     category="recall",
-                    message=f"🚨 RECALL ({recall.get('status')}): {recall.get('reason_for_recall')[:200]}...",
+                    message=f"⚠️ [{drug_name}] RECALL ({recall.get('status')}): {reason[:200]}...",
                     source="FDA Enforcement",
                     citation="https://api.fda.gov/drug/enforcement.json"
                 ))
-                
+            
         except Exception as e:
             logger.warning("Recall check failed for '%s': %s", drug_name, e)
             

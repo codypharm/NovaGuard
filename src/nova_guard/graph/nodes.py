@@ -622,7 +622,7 @@ async def assistant_node(state: PatientState) -> dict:
         • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
         • Answer only the current question — do not add unsolicited information
         • Think step-by-step before answering safety-sensitive questions
-        • Always include references stored in references: {state.get('research_report', '')} if they are available
+        • Clean up data , ensure no duplicate information
         Reply professionally, clearly and helpfully.
         """
 
@@ -781,8 +781,18 @@ async def clinical_safety_node(state: PatientState) -> dict:
     existing_flags = state.get("safety_flags", [])
     combined_flags = existing_flags + all_flags
     
+    # Deduplicate flags based on content
+    unique_flags = []
+    seen = set()
+    for f in combined_flags:
+        # Create a unique key for the flag
+        key = (f.category, f.severity, f.message)
+        if key not in seen:
+            seen.add(key)
+            unique_flags.append(f)
+    
     return {
-        "safety_flags": combined_flags
+        "safety_flags": unique_flags
     }
 
 
