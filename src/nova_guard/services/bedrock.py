@@ -132,6 +132,24 @@ class BedrockClient:
             logger.error("Chat completion failed: %s", e)
             return "I'm sorry, I'm having trouble processing that clinical question right now."
 
+    async def chat_lite(self, system_prompt: str, user_query: str) -> str:
+        """Uses Nova Lite via OpenAI API for faster/cheaper reasoning."""
+        if not self.openai_client: return "Error: AI not available."
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_LITE,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_query}
+                ],
+                temperature=0.0
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error("Nova Lite chat failed: %s", e)
+            return ""
+
     # ========================================================================
     # Clinical Research (Nova Pro)
     # ========================================================================

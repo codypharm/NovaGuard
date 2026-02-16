@@ -401,7 +401,7 @@ _NODE_LABELS = {
     "fetch_patient": "Loading patient profile…",
     "fetch_medical_knowledge": "Searching medical literature…",
     "auditor": "Analyzing prescriptions…",
-    "openfda": "Checking FDA safety database…",
+    "clinical_safety": "Checking Clinical Safety (RxNav/DailyMed)…",
     "verdict": "Generating safety verdict…",
     "assistant_node": "Preparing response…",
     "tools_node": "Executing clinical action…",

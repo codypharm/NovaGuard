@@ -11,7 +11,7 @@ from nova_guard.graph.nodes import (
     text_intake_node,
     fetch_patient_node,
     auditor_node,
-    openfda_node,
+    clinical_safety_node,  # Renamed from openfda_node
     verdict_node,
     fetch_medical_knowledge_node,
     assistant_node,
@@ -27,7 +27,7 @@ def create_prescription_workflow(checkpointer=None):
     Workflow Structure:
     1.  START → Gateway Supervisor (Intent Classification)
     2.  Supervisor → Router (Directs to AUDIT, ASSIST, or TOOLS)
-    3.  Audit Path: Intake → HITL → Fetch Patient → Auditor → OpenFDA → Verdict
+    3.  Audit Path: Intake → HITL → Fetch Patient → Auditor → Clinical Safety → Verdict
     4.  Assist Path: Fetch Patient → Assistant Node
     5.  Tools Path: Execute System Action (URL opening, etc.)
     """
@@ -50,7 +50,7 @@ def create_prescription_workflow(checkpointer=None):
     workflow.add_node("fetch_patient", fetch_patient_node)
     workflow.add_node("fetch_medical_knowledge", fetch_medical_knowledge_node)
     workflow.add_node("auditor", auditor_node)
-    workflow.add_node("openfda", openfda_node)
+    workflow.add_node("clinical_safety", clinical_safety_node) # Updated node
     workflow.add_node("verdict", verdict_node)
     
     # Dialogue & Action nodes
@@ -79,7 +79,6 @@ def create_prescription_workflow(checkpointer=None):
     )
     
     # 3. Intake to Processing (Human-in-the-Loop follows image/text extraction)
-    workflow.add_edge("image_intake", "fetch_patient")
     workflow.add_edge("image_intake", "fetch_patient")
     # workflow.add_edge("text_intake", "fetch_patient") # Removed fixed edge
     
@@ -111,8 +110,8 @@ def create_prescription_workflow(checkpointer=None):
     )
     
     # 5. Audit Loop
-    workflow.add_edge("auditor", "openfda")
-    workflow.add_edge("openfda", "verdict")
+    workflow.add_edge("auditor", "clinical_safety") # Updated edge
+    workflow.add_edge("clinical_safety", "verdict") # Updated edge
     workflow.add_edge("verdict", "assistant_node") 
     
     # 6. Assistant & Tools completion

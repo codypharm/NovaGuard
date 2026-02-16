@@ -398,20 +398,42 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
     
     for prescription in prescriptions:
         drug_name = prescription.drug_name
+        
+        # 1. Fetch OpenFDA Label (Text Source) - Keep for general sections
         label = await openfda_client.get_drug_label(drug_name)
-       
-        if not label:
+        
+        # 2. Fetch Precision Data (RxNav / DailyMed)
+        from nova_guard.services.clinical_services import clinical_service
+        rxcui = await clinical_service.get_rxcui(drug_name)
+        
+        # Interactions (RxNav)
+        interaction_text = "No critical interactions found."
+        if rxcui:
+            # We check interactions against ITSELF? No, usually against other drugs.
+            # But here we just want general interaction info? 
+            # RxNav Interaction API usually checks PAIRS.
+            # To get "All interactions" for a single drug is a different endpoint: /interaction/interaction.json?rxcui=...
+            # The current clinical_service.check_interactions takes a LIST of rxcuis.
+            # Let's fallback to OpenFDA text for single-drug context, 
+            # BUT if we have multiple drugs in context, we could run the batch check.
+            pass
+            
+        # Boxed Warning (DailyMed/OpenFDA JSON)
+        boxed_flag = await clinical_service.check_boxed_warning(drug_name, label)
+        boxed_text = boxed_flag.message if boxed_flag else "None"
+
+        if not label and not rxcui:
             continue
 
         refined = {
             "drug_name": drug_name,
-            "indications": openfda_client._extract_field(label, "indications_and_usage") or "—",
-            "dosage": openfda_client._extract_field(label, "dosage_and_administration") or "—",
-            "contraindications": openfda_client._extract_field(label, "contraindications") or "—",
-            "boxed_warning": openfda_client._extract_field(label, "boxed_warning") or "None",
-            "warnings": openfda_client._extract_field(label, "warnings") or "—",
-            "interactions": openfda_client._extract_field(label, "drug_interactions") or "—",
-            "source_url": openfda_client._get_citation(label) or "—",
+            "indications": clinical_service.get_label_field(label or {}, "indications_and_usage"),
+            "dosage": clinical_service.get_label_field(label or {}, "dosage_and_administration"),
+            "contraindications": clinical_service.get_label_field(label or {}, "contraindications"),
+            "boxed_warning": boxed_text,
+            "warnings": clinical_service.get_label_field(label or {}, "warnings"),
+            "interactions": clinical_service.get_label_field(label or {}, "drug_interactions"),
+            "source_url": openfda_client._get_citation(label or {}) or "—",
         }
         refined["research_report"] = bio_research
         drug_info_map[drug_name] = refined
@@ -669,50 +691,98 @@ async def tools_node(state: PatientState) -> dict:
 
     # return {"messages": messages + [AIMessage(content="⚠️ Tool action failed to trigger a response.")]}
 
-async def openfda_node(state: PatientState) -> dict:
+async def clinical_safety_node(state: PatientState) -> dict:
     """
-    Run comprehensive safety checks via OpenFDA for ALL prescriptions.
+    Orchestrates high-precision clinical safety checks using specialized NLM/FDA APIs.
+    Replaces broad OpenFDA checks with structured data from RxNav, DailyMed, and RxClass.
     """
     from nova_guard.services.openfda import openfda_client
+    from nova_guard.services.clinical_services import clinical_service
+    from nova_guard.services.bedrock import bedrock_client
     
-    logger.info("Running OpenFDA safety checks")
+    logger.info("Running Clinical Safety Checks (Precision APIs)")
     
     prescriptions = state.get("prescriptions", [])
-    profile = state.get("patient_profile") or {} # Safely handle None profile
-    logger.info(f"prescriptions here: {prescriptions}")
+    profile = state.get("patient_profile") or {}
+    
     if not prescriptions:
-        return {
-            "safety_flags": [],
-            # "messages": ["⚠️ Skipping OpenFDA checks: Missing data"]
-        }
+        return {"safety_flags": []}
     
-    all_new_flags = []
-    
-    # Run checks for EACH drug
+    all_flags = []
+    rxcuis = []
+    drug_Label_map = {}
+
+    # 1. PER-DRUG CHECKS
     for rx in prescriptions:
-        flags = await openfda_client.run_all_checks(
-            drug_name=rx.drug_name,
-            patient_profile=profile
-        )
+        # A. Get OpenFDA Label (for text analysis source)
+        label = await openfda_client.get_drug_label(rx.drug_name)
+        drug_Label_map[rx.drug_name] = label
         
-        # Check if we got any actual FDA label data (vs just recalls or normalization info)
-        has_fda_label_data = any(f.source == "OpenFDA" for f in flags)
-        
-        if not has_fda_label_data:
-            logger.warning(f"No FDA label data found for {rx.drug_name} — triggering AI Fallback")
-            from nova_guard.services.bedrock import bedrock_client
-            ai_flags = await bedrock_client.get_ai_safety_flags(rx.drug_name, profile)
-            flags.extend(ai_flags)
+        # B. Get RxCUI (Normalization)
+        rxcui = await clinical_service.get_rxcui(rx.drug_name)
+        if rxcui:
+            rxcuis.append(rxcui)
             
-        all_new_flags.extend(flags)
-    logger.info(f"all new flags: {all_new_flags}")
-    # Combine with existing flags (from auditor node)
+        # C. Check Recalls
+        all_flags.extend(await openfda_client.check_drug_recall(rx.drug_name))
+
+        if label:
+            # D. Structured Checks (DailyMed / RxClass)
+            # Beers Criteria (Geriatric)
+            if profile.get("age_years", 0) >= 65:
+                beers_flag = await clinical_service.check_beers_criteria(rx.drug_name, profile.get("age_years"))
+                if beers_flag: all_flags.append(beers_flag)
+                
+            # Boxed Warning (DailyMed Source)
+            boxed_flag = await clinical_service.check_boxed_warning(rx.drug_name, label)
+            if boxed_flag: all_flags.append(boxed_flag)
+
+            # Pharmacokinetics (Renal/Hepatic Section 12.3)
+            # Only add if patient has risk factors to reduce noise.
+            pk_flags = await clinical_service.check_pharmacokinetics(rx.drug_name, label)
+            for flag in pk_flags:
+                if "Renal" in flag.message:
+                    # Show if eGFR is low (< 60)
+                    if float(profile.get("egfr") or 100) < 60:
+                        all_flags.append(flag)
+                elif "Hepatic" in flag.message:
+                    # Show if liver condition exists
+                    conditions = " ".join([c.get("condition", "") for c in profile.get("medical_conditions", [])]).lower()
+                    if any(x in conditions for x in ["liver", "cirrhosis", "hepatitis", "hepatic", "jaundice"]):
+                        all_flags.append(flag)
+
+            # E. Text-Based Checks (OpenFDA/DailyMed Logic)
+            # All clinical reasoning now consolidated in ClinicalKnowledgeService
+            
+            all_flags.extend(await clinical_service.check_contraindications(rx.drug_name, label))
+            all_flags.extend(await clinical_service.check_drug_allergy(rx.drug_name, label, profile))
+            
+            # Renal (using eGFR as proxy for CrCl)
+            if profile.get("egfr"):
+                all_flags.extend(await clinical_service.check_renal_dosing(rx.drug_name, label, profile))
+
+            # Pregnancy / Nursing
+            if profile.get("is_pregnant"):
+                 all_flags.extend(await clinical_service.check_pregnancy_safety(rx.drug_name, label, profile))
+
+            
+        else:
+            # AI FALLBACK (No Label Found)
+            logger.warning(f"No FDA label data found for {rx.drug_name} — triggering AI Fallback")
+            ai_flags = await bedrock_client.get_ai_safety_flags(rx.drug_name, profile)
+            all_flags.extend(ai_flags)
+
+    # 2. BATCH CHECKS (Interactions)
+    if len(rxcuis) >= 2:
+        interaction_flags = await clinical_service.check_interactions(rxcuis)
+        all_flags.extend(interaction_flags)
+
+    # Combine with existing (auditor) flags
     existing_flags = state.get("safety_flags", [])
-    combined_flags = existing_flags + all_new_flags
+    combined_flags = existing_flags + all_flags
     
     return {
-        "safety_flags": combined_flags,
-        # "messages": [f"✅ OpenFDA checks complete: Found {len(all_new_flags)} new flag(s) across {len(prescriptions)} drugs"]
+        "safety_flags": combined_flags
     }
 
 
