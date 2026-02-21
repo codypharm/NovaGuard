@@ -119,7 +119,8 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                   id: msg.id,
                   role: msg.role,
                   timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-                  content: msg.content
+                  content: msg.content,
+                  rawText: typeof msg.content === 'string' && msg.role === 'assistant' ? msg.content : undefined
               }))
               setMessages(formattedMessages)
           } catch (err) {
@@ -143,7 +144,8 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
           <div className="prose prose-sm prose-slate max-w-none dark:prose-invert prose-headings:text-slate-900 prose-h2:text-slate-900 prose-h3:text-slate-900 prose-p:text-slate-800 prose-li:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold prose-th:text-slate-900 prose-td:text-slate-800">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(assistantResponse || '')}</ReactMarkdown>
           </div>
-        )
+        ),
+        rawText: String(assistantResponse || '')
       }
       setMessages(prev => [...prev, assistantMsg])
       onResponseShown() // Clear the prop so we don't re-add it

@@ -30,12 +30,18 @@ async def generate_speech(text: str) -> bytes:
 
     try:
         async with websockets.connect(url, ssl=ssl_context, additional_headers=headers) as ws:
+            # 0. Wait for session.created
+            event = json.loads(await ws.recv())
+            if event["type"] != "session.created":
+                logger.warning(f"Unexpected initial event: {event}")
+                
             # 1. Configuration
             await ws.send(json.dumps({
                 "type": "session.update",
                 "session": {
                     "modalities": ["audio"],
-                    "voice": "alloy" # Optional voice parameter if supported
+                    "voice": "alloy",
+                    "instructions": f"You are a pure text-to-speech engine. Your ONLY job is to read the following text exactly word-for-word from beginning to end without stopping. Do not summarize. Do not skip any sentences. Here is the text to read:\n\n{text}"
                 }
             }))
             
@@ -45,22 +51,40 @@ async def generate_speech(text: str) -> bytes:
                 "item": {
                     "type": "message",
                     "role": "user",
-                    "content": [{"type": "input_text", "text": text}]
+                    "content": [{"type": "input_text", "text": "Begin reading."}]
                 }
             }))
             
-            # 3. Create response
-            await ws.send(json.dumps({"type": "response.create"}))
+            # 3. Trigger VAD with silent audio buffer
+            # Nova enforces Server VAD, so response.create is not supported.
+            # We must trick VAD into thinking speech just ended.
+            silent_pcm = bytes(24000 * 2 * 1) # 1 second of silence (16-bit 24kHz Mono = 48000 bytes)
+            
+            # Send the silence chunk in small 8192 byte blocks to avoid WebSocket frame limits
+            CHUNK_SIZE = 8192
+            for i in range(0, len(silent_pcm), CHUNK_SIZE):
+                chunk = silent_pcm[i:i+CHUNK_SIZE]
+                await ws.send(json.dumps({
+                    "type": "input_audio_buffer.append",
+                    "audio": base64.b64encode(chunk).decode('utf-8')
+                }))
+                await asyncio.sleep(0.01)
+            
+            # Note: DO NOT send input_audio_buffer.commit or response.create. 
+            # Nova automatically starts generating responses when VAD detects 1s of silence.
             
             # 4. Wait for audio stream
             while True:
-                response = await ws.recv()
-                event = json.loads(response)
-                
-                if event["type"] == "response.audio.delta":
-                    audio_chunks.append(base64.b64decode(event["delta"]))
-                elif event["type"] == "response.audio.done" or event["type"] == "response.done":
+                try:
+                    response = await asyncio.wait_for(ws.recv(), timeout=1.5)
+                except asyncio.TimeoutError:
                     break
+                    
+                event = json.loads(response)
+                print(f"Nova TTS Event: {event.get('type')}", flush=True)
+                
+                if event["type"] == "response.output_audio.delta":
+                    audio_chunks.append(base64.b64decode(event["delta"]))
                 elif event["type"] == "error":
                     logger.error(f"Nova TTS Error: {event}")
                     break
