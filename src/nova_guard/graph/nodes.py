@@ -322,7 +322,7 @@ async def fetch_patient_node(state: PatientState) -> dict:
     from nova_guard.database import AsyncSessionLocal
     from nova_guard.api.patients import get_patient
     
-    logger.info("Fetching patient profile for ID: %s", state['patient_id'])
+    logger.error(f"FETCH_PATIENT_NODE: state is {state}")
     
     async with AsyncSessionLocal() as db:
         patient = await get_patient(db, state["patient_id"])
@@ -665,17 +665,65 @@ async def assistant_node(state: PatientState) -> dict:
     role_description = role_map.get(intent, role_map["GENERAL_CHAT"])
 
     # ─── 3. Safe context string preparation ────────────────────────────────
+    from datetime import datetime
+    
+    def format_patient_markdown(profile: dict) -> str:
+        if not profile:
+            return "No patient profile available."
+            
+        md = f"**Patient ID:** {profile.get('name', 'Unknown')}\n"
+        md += f"**Age:** {profile.get('age_years', 'Unknown')} | **Weight:** {profile.get('weight', 'Unknown')} kg | **Height:** {profile.get('height', 'Unknown')} cm\n"
+        
+        # Extracted Critical Vitals (Hoisted out of the haystack)
+        md += "\n### 🚨 CRITICAL VITALS & FLAGS\n"
+        md += f"- **Renal Function (eGFR):** {profile.get('egfr', 'Unknown')} mL/min\n"
+        if profile.get("is_pregnant"): md += "- **PREGNANT**\n"
+        if profile.get("is_nursing"): md += "- **LACTATING/NURSING**\n"
+        
+        # Arrays to bullets
+        allergies = profile.get("allergies", [])
+        if allergies:
+            md += "\n### ⚠️ ALLERGIES\n"
+            for a in allergies:
+                md += f"- **{a['allergen']}** ({a.get('type', 'Unknown')}): {a.get('symptoms', 'Unknown')} - Severity: {a.get('severity', 'Unknown')}\n"
+                
+        active_meds = profile.get("active_medications", [])
+        if active_meds:
+            md += "\n### 💊 ACTIVE MEDICATIONS\n"
+            for m in active_meds:
+                md += f"- **{m['drug']}** ({m.get('dose', '')} {m.get('frequency', '')})\n"
+                
+        labs = profile.get("lab_results", [])
+        if labs:
+            md += "\n### 🧪 RECENT LABS\n"
+            for l in labs:
+                flag = "🔴 ABNORMAL" if l.get("is_abnormal") else "🟢 NORMAL"
+                date_str = l.get("collected_at", "Unknown Date")[:10]
+                md += f"- **{l['test_name']}**: {l['value']} {l['unit']} ({flag}) [Collected: {date_str}]\n"
+                
+        reactions = profile.get("adverse_reactions", [])
+        if reactions:
+            md += "\n### 🛑 PRIOR ADVERSE REACTIONS\n"
+            for r in reactions:
+                md += f"- **{r['drug']}**: {r.get('reaction', 'Unknown')} (Severity: {r.get('severity', 'Unknown')})\n"
+                
+        pgx = profile.get("genetic_markers", [])
+        if pgx:
+            md += "\n### 🧬 PHARMACOGENOMICS (PGx)\n"
+            for g in pgx:
+                md += f"- **{g['gene']}**: {g['phenotype']}\n"
+                
+        return md
+
     def safe_json(obj, fallback="—"):
-        if obj is None:
+        if not obj:
             return fallback
         try:
             return json.dumps(obj, indent=2, ensure_ascii=False, default=str)
         except Exception:
             return str(obj)[:800] + "…" if len(str(obj)) > 800 else str(obj)
 
-    # The patient profile in state is already de-identified by fetch_patient_node
-    # to maintain HIPAA compliance.
-    patient_profile_str = json.dumps(state.get("patient_profile", {}), indent=2)
+    patient_profile_str = format_patient_markdown(state.get("patient_profile", {}))
     verdict_str = safe_json(state.get("verdict"), "No verdict available")
     
     # Use drug_info_map for multi-drug context
@@ -700,6 +748,8 @@ async def assistant_node(state: PatientState) -> dict:
 
     # ─── 4. Modern, stricter system prompt ─────────────────────────────────
     system_prompt = f"""\
+        SYSTEM CLOCK: Current Date & Time is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. Use this to determine if labs or events are historical or acute.
+        
         You are **Nova Guard** — advanced clinical pharmacist decision support assistant.
 
         ROLE & TONE:
@@ -707,7 +757,6 @@ async def assistant_node(state: PatientState) -> dict:
 
         CURRENT CONTEXT:
         ──────────────────────────────
-        PATIENT PROFILE
         {patient_profile_str}
         
         EXTRACTED PRESCRIPTIONS
@@ -725,28 +774,28 @@ async def assistant_node(state: PatientState) -> dict:
         ──────────────────────────────
 
         MANDATORY RULES — YOU MUST FOLLOW ALL:
-        • Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
-        • ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
-        • CHECK FOR DRUG-DRUG INTERACTIONS between all prescribed drugs (using generic names from FDA data)
-        • If GENETIC MARKERS (PGx) exist in the patient profile, CHECK for gene-drug interactions (e.g., CYP2D6 poor metabolizer + codeine)
-        • If LAB RESULTS exist in the patient profile, CHECK for organ impairment (low eGFR → renal dose adjust, elevated ALT/AST → hepatic caution)
-        • Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
-        • Use professional, precise, pharmacist-to-pharmacist language
-        • If Red/Yellow flags exist — mention them EARLY and clearly (never bury safety info)
-        • When data is missing/insufficient → clearly state: "Information not available in current context"
-        • If you need additional clinical context to give a safe recommendation, ASK the pharmacist a clarifying question
-        • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
-        • Answer only the current question — do not add unsolicited information
-        • Think step-by-step before answering safety-sensitive questions
+        • PRIORITIZE the provided FDA REFERENCE DATA for pharmacology/dosing. If specific clinical cutoffs are missing, fall back to standard clinical guidelines and state that you are doing so.
+        • ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, and critical organ function (eGFR).
+        • CHECK FOR DRUG-DRUG INTERACTIONS between all prescribed drugs.
+        • If GENETIC MARKERS (PGx) exist, CHECK for gene-drug interactions.
+        • If LAB RESULTS exist, calculate the gap between the lab value and the required FDA parameters. Pay attention to the `collected_at` date versus the SYSTEM CLOCK.
+        • Be cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, major CYP/DDIs.
+        • Use professional, precise, pharmacist-to-pharmacist language.
+        • If you need additional clinical context to give a safe recommendation, ASK the pharmacist a clarifying question.
+        • NEVER give direct patient-facing advice.
+
+        REQUIRED CHAIN OF THOUGHT:
+        Before answering, you MUST show your clinical reasoning inside <clinical_analysis> tags. 
+        1. Note the patient's organ function and critical history.
+        2. Note the FDA clearance / metabolism path for the drug. 
+        3. Calculate any drug-drug or drug-disease interactions.
+        4. Synthesize the risk.
+        Only after closing the </clinical_analysis> tag should you provide your final recommendation or response.
 
         OUTPUT FORMATTING — STRICTLY ENFORCE:
-        • Format using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
-        • ONLY include content that is directly relevant to answering the user's question — omit sections with no data
-        • NEVER output empty bullet points, empty braces {{}}, empty brackets [], or placeholder text like "N/A" or "None"
-        • If a "References" section has no actual URLs to show, DO NOT include the section at all
-        • If you include references, format each as: **Source Name** — [URL](URL) — only if you have a real URL
-        • Do NOT show raw JSON, empty objects, or data structure artifacts in the response
-        • Keep the response concise and scannable — no filler paragraphs
+        • Format final answers using clean Markdown.
+        • ONLY include content directly relevant to answering the user's question.
+        • NEVER output empty bullet points or placeholder text.
         Reply professionally, clearly and helpfully.
         """
 

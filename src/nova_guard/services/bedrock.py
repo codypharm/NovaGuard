@@ -6,6 +6,7 @@ import os
 from typing import Optional, List, Dict, Any
 from botocore.exceptions import ClientError
 from openai import OpenAI
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -429,19 +430,24 @@ class BedrockClient:
             return []
 
         # Convert profile to string for prompt
-        # Use a minimal representation to avoid confusing the model
-        minimal_profile = {
-            "age": patient_profile.get("age_years"),
-            "pregnant": patient_profile.get("is_pregnant"),
-            "nursing": patient_profile.get("is_nursing"),
-            "egfr": patient_profile.get("egfr"),
-            "allergies": [a.get("allergen") for a in patient_profile.get("allergies", []) if isinstance(a, dict)],
-            "current_meds": [m.get("drug") for m in patient_profile.get("active_medications", []) if isinstance(m, dict)],
-            "adverse_reactions": [r.get("reaction") for r in patient_profile.get("adverse_reactions", []) if isinstance(r, dict)]
-        }
-        profile_str = json.dumps(minimal_profile, default=str)
+        # Use a minimal representation in Markdown instead of JSON to avoid confusing the model
+        profile_str = f"Age: {patient_profile.get('age_years')}\n"
+        profile_str += f"Pregnant: {patient_profile.get('is_pregnant')}\n"
+        profile_str += f"Nursing: {patient_profile.get('is_nursing')}\n"
+        profile_str += f"eGFR: {patient_profile.get('egfr')}\n"
+        profile_str += f"Allergies: {[a.get('allergen') for a in patient_profile.get('allergies', []) if isinstance(a, dict)]}\n"
+        profile_str += f"Current Meds: {[m.get('drug') for m in patient_profile.get('active_medications', []) if isinstance(m, dict)]}\n"
+        profile_str += f"Adverse Reactions: {[r.get('reaction') for r in patient_profile.get('adverse_reactions', []) if isinstance(r, dict)]}\n"
         
-        system_prompt = """
+        lab_strings = []
+        for l in patient_profile.get('lab_results', []):
+            if isinstance(l, dict):
+                lab_strings.append(f"{l.get('test_name')}: {l.get('value')} {l.get('unit')} (Collected: {str(l.get('collected_at'))[:10]})")
+        profile_str += f"Recent Labs: {lab_strings}\n"
+        
+        system_prompt = f"""
+        SYSTEM CLOCK: Current Date is {datetime.now().strftime('%Y-%m-%d')}. Use this to determine if labs or events are historical or acute.
+        
         You are a highly conservative clinical safety auditor.
         The user has requested a safety check for a drug that has NO FDA LABEL (likely international or unapproved in US).
         You must use your internal pharmacological knowledge to identify critical safety issues.
@@ -451,22 +457,26 @@ class BedrockClient:
         1. Contraindications (Absolute)
         2. Major Drug-Drug Interactions (with current meds)
         3. Pregnancy/Lactation Risks
-        4. Renal/Hepatic Adjustments
+        4. Renal/Hepatic Adjustments (compare patient labs to known cutoffs)
         5. Black Box Warnings (Global consensus)
 
+        REQUIRED CHAIN OF THOUGHT:
+        Before outputting the JSON, you MUST show your clinical reasoning inside <clinical_analysis> tags. 
+        Note the patient's organ function, any current meds, and calculate risk based on the provided Recent Labs and SYSTEM CLOCK.
+
         Return a JSON object with a list of flags:
-        {
+        {{
             "flags": [
-                {
+                {{
                     "severity": "critical" | "warning" | "info",
                     "category": "contraindication" | "interaction" | "pregnancy" | "dosing" | "warning",
                     "message": "Clear, concise clinical warning message.",
                     "citation": "International Label / Clinical Pharmacology"
-                }
+                }}
             ]
-        }
+        }}
         
-        If no major issues found, return {"flags": []}.
+        If no major issues found, return {{"flags": []}}.
         Be conservative. If unsure, flag as warning "Insufficient Data".
         """
 
@@ -527,7 +537,6 @@ class BedrockClient:
         - frequencies ( list of frequencies associated with each drug in the same order as drug_names e.g., "daily", "twice daily", "three times daily")
         - prescriber (optional, e.g., "Dr. Smith")
         - date (optional, e.g., "2022-01-01")
-        - patient_name (optional, e.g., "John Doe")
         
         
         Return ONLY valid JSON with these exact keys.

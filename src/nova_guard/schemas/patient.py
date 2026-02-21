@@ -203,7 +203,6 @@ class PrescriptionData(BaseModel):
     prescriber: Optional[str] = None
     notes: Optional[str] = None
     date: Optional[str] = None
-    patient_name: Optional[str] = None
 
 
 class PrescriptionInput(BaseModel):
