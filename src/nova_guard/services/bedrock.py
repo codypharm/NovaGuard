@@ -133,10 +133,38 @@ class BedrockClient:
         if not self.openai_client: return "Error: AI not available (check NOVA_API_KEY)."
 
         messages = [{"role": "system", "content": system_prompt}]
-        # Add history if format matches, otherwise skip for now or adapt
-        # history usually comes as LangChain messages, might need adaptation
-        # For now, simplistic approach:
-        messages.append({"role": "user", "content": user_query})
+        
+        # Parse LangChain conversation history
+        for msg in history:
+            role = getattr(msg, "type", "")
+            if role == "human":
+                role = "user"
+            elif role == "ai":
+                role = "assistant"
+                
+            content = getattr(msg, "content", "")
+            if isinstance(content, list):
+                # Extract text from multimodal payload
+                text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and "text" in p]
+                content = " ".join(text_parts)
+            elif not isinstance(content, str):
+                content = str(content)
+                
+            if role in ["user", "assistant"] and content:
+                # Merge consecutive same-role messages to satisfy Bedrock strict alternating requirements
+                if len(messages) > 1 and messages[-1]["role"] == role:
+                    messages[-1]["content"] += f"\n\n{content}"
+                else:
+                    messages.append({"role": role, "content": content})
+
+        # Ensure the conversation doesn't end with a system message or assistant message if we have a direct query
+        if hasattr(user_query, "strip") and user_query.strip():
+            # If the last message is already a user message and ends with user_query, don't duplicate
+            if len(messages) == 1 or messages[-1]["role"] != "user" or not messages[-1]["content"].endswith(user_query.strip()):
+                if len(messages) > 1 and messages[-1]["role"] == "user":
+                    messages[-1]["content"] += f"\n\n{user_query}"
+                else:
+                    messages.append({"role": "user", "content": user_query})
 
         try:
             response = self.openai_client.chat.completions.create(

@@ -263,19 +263,10 @@ def route_input(state: PatientState) -> str:
         logger.debug("No text provided, fetching tools")
         return "tools_node"
     
-    # Path for Chat / Questions
-    if intent == "CLINICAL_QUERY":
-        return "fetch_patient"
-         
-
-    if intent == "MEDICAL_KNOWLEDGE":
-        return "fetch_medical_knowledge"
-        
-    if intent == "GENERAL_CHAT":
-        logger.debug("General chat detected, fetching assistant")
-        return "assistant_node"
-         
-    return "assistant_node"
+    # For ANY chat interaction (CLINICAL_QUERY, MEDICAL_KNOWLEDGE, GENERAL_CHAT),
+    # ALWAYS route to fetch_patient first so the assistant has full context.
+    # conditional_fetch_patient will then correctly route it to the next step.
+    return "fetch_patient"
 
 def conditional_fetch_patient(state: PatientState) -> str:
     """
@@ -322,7 +313,7 @@ async def fetch_patient_node(state: PatientState) -> dict:
     from nova_guard.database import AsyncSessionLocal
     from nova_guard.api.patients import get_patient
     
-    logger.error(f"FETCH_PATIENT_NODE: state is {state}")
+    logger.info("Fetching patient profile for ID: %s", state.get('patient_id'))
     
     async with AsyncSessionLocal() as db:
         patient = await get_patient(db, state["patient_id"])

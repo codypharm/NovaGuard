@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, User as UserIcon, Bot, Paperclip, X, Mic, Loader2, Square, Volume2, Download, CheckCircle2 } from "lucide-react"
+import { Send, User as UserIcon, ShieldPlus, Paperclip, X, Mic, Loader2, Square, Volume2, Download, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
 import ReactMarkdown from 'react-markdown'
@@ -133,6 +133,45 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
       loadHistory()
   }, [sessionId])
 
+  const renderMessageContent = (text: string) => {
+    if (!text) return null;
+    const parts = text.split(/(<clinical_analysis>[\s\S]*?<\/clinical_analysis>)/gi);
+    return (
+        <>
+            {parts.map((part, i) => {
+                if (part.toLowerCase().startsWith("<clinical_analysis>")) {
+                    const analysisContent = part.replace(/<clinical_analysis>/i, "").replace(/<\/clinical_analysis>/i, "").trim();
+                    return (
+                        <details key={i} className="mb-4 mt-2 rounded-lg border border-teal-200 bg-teal-50/30 overflow-hidden text-sm transition-all shadow-sm">
+                            <summary className="px-3 py-2.5 cursor-pointer font-semibold text-teal-800 select-none flex items-center gap-2 hover:bg-teal-100/50 transition-colors text-xs tracking-wide">
+                                <ShieldPlus className="h-4 w-4 text-teal-600" />
+                                AI Clinical Reasoning
+                            </summary>
+                            <div className="px-4 pb-4 pt-2 text-slate-700 bg-white border-t border-teal-100 text-[13px] leading-relaxed">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysisContent}</ReactMarkdown>
+                            </div>
+                        </details>
+                    );
+                }
+                if (!part.trim()) return null;
+                return (
+                    <ReactMarkdown 
+                        key={i} 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                            img: ({node, ...props}) => (
+                                <img {...props} className="rounded-lg max-w-full h-auto my-2 border border-slate-200 shadow-sm" alt={props.alt || "Image"} />
+                            )
+                        }}
+                    >
+                        {part}
+                    </ReactMarkdown>
+                );
+            })}
+        </>
+    );
+  }
+
   // Effect to add assistant response when it arrives
   useEffect(() => {
     if (assistantResponse) {
@@ -142,7 +181,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
         timestamp: new Date(),
         content: (
           <div className="prose prose-sm prose-slate max-w-none dark:prose-invert prose-headings:text-slate-900 prose-h2:text-slate-900 prose-h3:text-slate-900 prose-p:text-slate-800 prose-li:text-slate-800 prose-strong:text-slate-900 prose-strong:font-bold prose-th:text-slate-900 prose-td:text-slate-800">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(assistantResponse || '')}</ReactMarkdown>
+            {renderMessageContent(String(assistantResponse || ''))}
           </div>
         ),
         rawText: String(assistantResponse || '')
@@ -288,7 +327,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
     >
       {/* Header */}
       <div className="px-4 py-3 border-b bg-slate-50 flex items-center gap-2">
-        <Bot className="h-4 w-4 text-teal-600" />
+        <ShieldPlus className="h-4 w-4 text-teal-600" />
         <span className="font-semibold text-sm text-slate-700">Safety Assistant</span>
       </div>
 
@@ -314,7 +353,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
         {!isLoadingHistory && messages.length === 0 && !isProcessing && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-4">
                 <div className="h-16 w-16 bg-slate-100 rounded-full flex items-center justify-center mb-2">
-                    <Bot className="h-8 w-8 text-slate-300" />
+                    <ShieldPlus className="h-8 w-8 text-slate-300" />
                 </div>
                 <div className="text-center space-y-1">
                     <p className="font-medium text-slate-600">Reimagine Clinical Safety</p>
@@ -329,7 +368,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                     "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
                     msg.role === 'user' ? "bg-slate-100 text-slate-600" : "bg-teal-100 text-teal-600"
                 )}>
-                    {msg.role === 'user' ? <UserIcon className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
+                    {msg.role === 'user' ? <UserIcon className="h-4 w-4" /> : <ShieldPlus className="h-4 w-4" />}
                 </div>
                 <div className={cn(
                     "max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-sm",
@@ -339,19 +378,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                 )}>
                     <div className="prose prose-sm prose-slate max-w-none dark:prose-invert">
                         {typeof msg.content === 'string' ? (
-                            <ReactMarkdown 
-                                components={{
-                                    img: ({node, ...props}) => (
-                                        <img 
-                                            {...props} 
-                                            className="rounded-lg max-w-full h-auto my-2 border border-slate-200 shadow-sm" 
-                                            alt={props.alt || "Image"}
-                                        />
-                                    )
-                                }}
-                            >
-                                {msg.content}
-                            </ReactMarkdown>
+                            renderMessageContent(msg.content)
                         ) : (
                             msg.content
                         )}
@@ -375,7 +402,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
         {isProcessing && (
            <div className="flex items-start gap-3 fade-in slide-in-from-bottom-2 duration-300">
                <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0 shadow-sm">
-                  <Bot className="h-4 w-4 text-teal-600 animate-pulse" />
+                  <ShieldPlus className="h-4 w-4 text-teal-600 animate-pulse" />
                </div>
                <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 text-sm text-slate-600 min-w-[280px] shadow-sm flex flex-col gap-3">
                   <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
