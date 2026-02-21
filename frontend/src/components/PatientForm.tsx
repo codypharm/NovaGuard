@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react"
-import { User, AlertTriangle, Edit2, Search, X, Check } from "lucide-react" // Added Search
+import { User, AlertTriangle, Edit2, Search, X, Check, Activity, Dna, Camera } from "lucide-react" // Added icons
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { createPatient, updatePatient, getPatientByMRN, type Patient } from "@/services/api"
+import { createPatient, updatePatient, getPatientByMRN, scanLabResults, type Patient } from "@/services/api"
 
 interface PatientFormProps {
   initialPatient: Patient | null
@@ -23,8 +23,12 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
     medical_record_number: "",
     weight: "",
     height: "",
-    allergies: []
+    allergies: [],
+    genetic_markers: [],
+    lab_results: []
   })
+  
+  const [isScanningLab, setIsScanningLab] = useState(false)
 
   useEffect(() => {
     if (initialPatient) {
@@ -144,6 +148,43 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                         ))
                     ) : (
                         <span className="text-sm text-slate-400 italic">No known allergies</span>
+                    )}
+                </div>
+                
+                {/* LAB RESULTS VIEW */}
+                <div className="flex items-center gap-2 mt-5 mb-2">
+                    <Activity className="h-4 w-4 text-blue-500" />
+                    <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Lab Results</span>
+                </div>
+                <div className="flex flex-col gap-2">
+                    {initialPatient.lab_results && initialPatient.lab_results.length > 0 ? (
+                        initialPatient.lab_results.map((lab, i) => (
+                            <div key={i} className="text-xs bg-slate-50 border p-2 rounded flex justify-between items-center">
+                                <span className="font-medium text-slate-700">{lab.test_name}</span>
+                                <span className={lab.is_abnormal ? "text-red-600 font-bold" : "text-emerald-600 font-semibold"}>
+                                    {lab.value} {lab.unit}
+                                </span>
+                            </div>
+                        ))
+                    ) : (
+                        <span className="text-sm text-slate-400 italic">No lab results on file</span>
+                    )}
+                </div>
+
+                {/* PGX VIEW */}
+                <div className="flex items-center gap-2 mt-5 mb-2">
+                    <Dna className="h-4 w-4 text-purple-500" />
+                    <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Genetics (PGx)</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {initialPatient.genetic_markers && initialPatient.genetic_markers.length > 0 ? (
+                        initialPatient.genetic_markers.map((marker, i) => (
+                            <span key={i} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-800 border border-purple-100">
+                                {marker.gene}: {marker.phenotype}
+                            </span>
+                        ))
+                    ) : (
+                        <span className="text-sm text-slate-400 italic">No genetic markers tracked</span>
                     )}
                 </div>
             </div>
@@ -337,9 +378,46 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                 )}
             </div>
         </div>
+        {/* Labs Scanner */}
+        {formData.id && (
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+                <Label className="flex items-center gap-2 text-blue-700"><Activity className="h-4 w-4" /> Lab Results Scanner</Label>
+                <div className="flex gap-2 items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
+                    <input type="file" id="lab-image" accept="image/*" className="text-xs flex-1 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+                    <Button 
+                        size="sm" 
+                        variant="secondary" 
+                        className="bg-white"
+                        disabled={isScanningLab}
+                        onClick={async () => {
+                            const input = document.getElementById("lab-image") as HTMLInputElement
+                            const file = input.files?.[0]
+                            if (!file) return alert("Select an image first")
+                            
+                            setIsScanningLab(true)
+                            try {
+                                const newLabs = await scanLabResults(formData.id!, file)
+                                setFormData(prev => ({
+                                    ...prev,
+                                    lab_results: [...(prev.lab_results || []), ...newLabs]
+                                }))
+                                alert(`Successfully extracted ${newLabs.length} biomarkers!`)
+                                input.value = ''
+                            } catch (e) {
+                                alert("Failed to scan labs")
+                            } finally {
+                                setIsScanningLab(false)
+                            }
+                        }}
+                    >
+                        {isScanningLab ? "Scanning..." : <><Camera className="h-4 w-4 mr-2" /> Scan Report</>}
+                    </Button>
+                </div>
+            </div>
+        )}
         </div>
 
-        <div className="flex justify-end pt-2">
+        <div className="flex justify-end pt-4 mt-4 border-t">
             <Button 
                 onClick={handleSave} 
                 className="w-full bg-teal-600 hover:bg-teal-700" 

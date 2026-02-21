@@ -93,8 +93,7 @@ def create_prescription_workflow(checkpointer=None):
         route_text_intake,
         {
             "fetch_patient": "fetch_patient",
-            "tools_node": "tools_node",
-            END: END
+            "tools_node": "tools_node"
         }
     )
     
@@ -106,6 +105,7 @@ def create_prescription_workflow(checkpointer=None):
             "auditor": "auditor",
             "fetch_medical_knowledge": "fetch_medical_knowledge",
             "assistant_node": "assistant_node", # If the intent was just a query
+            "tools_node": "tools_node",         # For SYSTEM_ACTION intent
         }
     )
     

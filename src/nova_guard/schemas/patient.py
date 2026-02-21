@@ -101,6 +101,56 @@ class AdverseReactionResponse(BaseModel):
 
 
 # ============================================================================
+# Lab Result Schemas
+# ============================================================================
+
+class LabResultCreate(BaseModel):
+    """Schema for creating a lab result entry."""
+
+    patient_id: int
+    test_name: str = Field(..., min_length=1, max_length=255)
+    value: float
+    unit: str = Field(..., min_length=1, max_length=50)
+    reference_range: Optional[str] = None
+    is_abnormal: bool = False
+    source: Literal["manual", "vision"] = "manual"
+    collected_at: Optional[datetime] = None
+
+
+class LabResultResponse(LabResultCreate):
+    """Schema for lab result response."""
+
+    id: int
+    collected_at: datetime
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
+# Genetic Marker Schemas
+# ============================================================================
+
+class GeneticMarkerCreate(BaseModel):
+    """Schema for creating a PGx marker."""
+
+    patient_id: int
+    gene: str = Field(..., min_length=1, max_length=50) # e.g., CYP2D6
+    phenotype: str = Field(..., min_length=1, max_length=100) # e.g., Poor Metabolizer
+    source: str = "manual"
+    tested_at: Optional[datetime] = None
+
+
+class GeneticMarkerResponse(GeneticMarkerCreate):
+    """Schema for PGx marker response."""
+
+    id: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ============================================================================
 # Patient Schemas
 # ============================================================================
 
@@ -134,6 +184,8 @@ class PatientResponse(PatientBase):
     allergies: list[AllergyResponse] = []
     drug_history: list[DrugHistoryResponse] = []
     adverse_reactions: list[AdverseReactionResponse] = []
+    lab_results: list[LabResultResponse] = []
+    genetic_markers: list[GeneticMarkerResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 

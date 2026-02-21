@@ -29,6 +29,10 @@ from nova_guard.schemas.patient import (
     AllergyResponse,
     AdverseReactionCreate,
     AdverseReactionResponse,
+    LabResultCreate,
+    LabResultResponse,
+    GeneticMarkerCreate,
+    GeneticMarkerResponse,
 )
 from nova_guard.schemas.session import SessionResponse
 
@@ -267,6 +271,153 @@ async def add_adverse_reaction(
     reaction.patient_id = patient_id
     return await patient_crud.add_adverse_reaction(db, reaction)
 
+
+# ============================================================================
+# Lab Results Endpoints
+# ============================================================================
+
+@app.post("/patients/{patient_id}/labs", response_model=LabResultResponse, status_code=201)
+async def add_lab_result(
+    patient_id: int,
+    lab: LabResultCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a manual lab result."""
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+         raise HTTPException(status_code=404, detail="Patient not found")
+    lab.patient_id = patient_id
+    return await patient_crud.add_lab_result(db, lab)
+
+@app.post("/patients/{patient_id}/labs/scan", response_model=list[LabResultResponse])
+async def scan_lab_results(
+    patient_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Scan an image of lab results and extract biomarkers."""
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+         raise HTTPException(status_code=404, detail="Patient not found")
+         
+    image_bytes = await file.read()
+    from nova_guard.services.bedrock import BedrockClient
+    bedrock = BedrockClient()
+    
+    extracted = await bedrock.process_lab_image(image_bytes)
+    results = []
+    
+    for item in extracted:
+        try:
+            value = float(item.get("value", 0.0))
+        except (ValueError, TypeError):
+            value = 0.0
+            
+        lab_create = LabResultCreate(
+            patient_id=patient_id,
+            test_name=item.get("test_name", "Unknown"),
+            value=value,
+            unit=item.get("unit", ""),
+            reference_range=item.get("reference_range"),
+            is_abnormal=item.get("is_abnormal", False),
+            source="vision"
+        )
+        db_lab = await patient_crud.add_lab_result(db, lab_create)
+        results.append(db_lab)
+        
+    return results
+
+@app.get("/patients/{patient_id}/labs", response_model=list[LabResultResponse])
+async def get_patient_labs(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+         raise HTTPException(status_code=404, detail="Patient not found")
+    return patient.lab_results
+
+
+# ============================================================================
+# Genetic Markers Endpoints
+# ============================================================================
+
+@app.post("/patients/{patient_id}/genetics", response_model=GeneticMarkerResponse, status_code=201)
+async def add_genetic_marker(
+    patient_id: int,
+    marker: GeneticMarkerCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """Add a genetic marker (PGx)."""
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+         raise HTTPException(status_code=404, detail="Patient not found")
+    marker.patient_id = patient_id
+    return await patient_crud.add_genetic_marker(db, marker)
+
+@app.get("/patients/{patient_id}/genetics", response_model=list[GeneticMarkerResponse])
+async def get_patient_genetics(
+    patient_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+         raise HTTPException(status_code=404, detail="Patient not found")
+    return patient.genetic_markers
+
+
+# ============================================================================
+# Text-To-Speech (Nova Sonic) Endpoint
+# ============================================================================
+
+from pydantic import BaseModel
+class TTSRequest(BaseModel):
+    text: str
+
+@app.post("/tts")
+async def process_tts(request: TTSRequest):
+    """Generate audio from text using Nova Sonic TTS."""
+    from nova_guard.services.nova_tts import generate_speech
+    from fastapi.responses import Response
+    
+    audio_bytes = await generate_speech(request.text)
+    if not audio_bytes:
+        raise HTTPException(status_code=500, detail="Failed to generate audio")
+        
+    return Response(content=audio_bytes, media_type="audio/wav")
+
+# ============================================================================
+# PDF Clinical Report Endpoint
+# ============================================================================
+
+@app.get("/sessions/{session_id}/report")
+async def get_session_report(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from nova_guard.api.sessions import get_session
+    from nova_guard.services.report_service import generate_audit_report
+    from nova_guard.graph.workflow import workflow
+    from fastapi.responses import Response
+
+    session = await get_session(db, session_id)
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Session not found")
+        
+    config = {"configurable": {"thread_id": session_id}}
+    state_snapshot = workflow.checkpointer.get_tuple(config)
+    
+    if not state_snapshot:
+        raise HTTPException(status_code=404, detail="No clinical interaction history found for this session.")
+        
+    state = state_snapshot.values
+    pdf_bytes = generate_audit_report(session_id, state)
+    
+    headers = {
+        "Content-Disposition": f"attachment; filename=NovaGuard_Audit_{session_id[:8]}.pdf"
+    }
+    return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
 
 # ============================================================================
 # Prescription Processing Endpoint (LangGraph Workflow)

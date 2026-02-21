@@ -12,6 +12,8 @@ from nova_guard.schemas.patient import (
     DrugHistoryCreate,
     AllergyCreate,
     AdverseReactionCreate,
+    LabResultCreate,
+    GeneticMarkerCreate,
 )
 
 
@@ -69,6 +71,8 @@ async def get_patient(db: AsyncSession, patient_id: int) -> Optional[Patient]:
             selectinload(Patient.drug_history),
             selectinload(Patient.allergies),
             selectinload(Patient.adverse_reactions),
+            selectinload(Patient.lab_results),
+            selectinload(Patient.genetic_markers),
         )
     )
     return result.scalar_one_or_none()
@@ -83,6 +87,7 @@ async def get_patient_by_mrn(db: AsyncSession, mrn: str) -> Optional[Patient]:
             selectinload(Patient.drug_history),
             selectinload(Patient.allergies),
             selectinload(Patient.adverse_reactions),
+            selectinload(Patient.lab_results),
         )
     )
     return result.scalar_one_or_none()
@@ -98,6 +103,7 @@ async def get_patients(
             selectinload(Patient.drug_history),
             selectinload(Patient.allergies),
             selectinload(Patient.adverse_reactions),
+            selectinload(Patient.lab_results),
         )
         .offset(skip)
         .limit(limit)
@@ -145,3 +151,26 @@ async def add_adverse_reaction(
     await db.flush()
     await db.refresh(db_reaction)
     return db_reaction
+
+
+async def add_lab_result(
+    db: AsyncSession, lab_result: LabResultCreate
+):
+    """Add lab result to patient's history."""
+    from nova_guard.models.lab_result import LabResult
+    db_lab = LabResult(**lab_result.model_dump())
+    db.add(db_lab)
+    await db.flush()
+    await db.refresh(db_lab)
+    return db_lab
+
+async def add_genetic_marker(
+    db: AsyncSession, marker: GeneticMarkerCreate
+):
+    """Add PGx marker to patient's profile."""
+    from nova_guard.models.genetic_marker import GeneticMarker
+    db_marker = GeneticMarker(**marker.model_dump())
+    db.add(db_marker)
+    await db.flush()
+    await db.refresh(db_marker)
+    return db_marker

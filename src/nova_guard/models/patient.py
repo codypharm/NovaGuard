@@ -12,6 +12,8 @@ from nova_guard.database import Base
 if False: # TYPE_CHECKING
     from nova_guard.models.user import User
     from nova_guard.models.session import Session
+    from nova_guard.models.lab_result import LabResult
+    from nova_guard.models.genetic_marker import GeneticMarker
 
 
 class AllergyType(str, Enum):
@@ -60,6 +62,12 @@ class Patient(Base):
         back_populates="patient", cascade="all, delete-orphan"
     )
     allergies: Mapped[list["AllergyRegistry"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    lab_results: Mapped[list["LabResult"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    genetic_markers: Mapped[list["GeneticMarker"]] = relationship(
         back_populates="patient", cascade="all, delete-orphan"
     )
     adverse_reactions: Mapped[list["AdverseReaction"]] = relationship(

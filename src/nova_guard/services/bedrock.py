@@ -339,6 +339,64 @@ class BedrockClient:
     # ========================================================================
     # NEW: AI SAFETY FALLBACK (For non-FDA drugs)
     # ========================================================================
+    
+    async def process_lab_image(self, image_bytes: bytes) -> List[Dict[str, Any]]:
+        """Extracts structured lab results from an image using Nova Lite."""
+        if not self.openai_client:
+             return []
+             
+        encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+        
+        prompt = """
+        Extract laboratory test biomarkers from this image.
+        Format the output as a valid JSON array of objects.
+        
+        REQUIRED SCHEMA (List of objects):
+        [
+            {
+                "test_name": "string (e.g. Serum Creatinine, eGFR, ALT)",
+                "value": float,
+                "unit": "string (e.g. mg/dL, units/L)",
+                "reference_range": "string (e.g. 0.7-1.2)",
+                "is_abnormal": boolean (true if value is outside reference range)
+            }
+        ]
+        
+        Return ONLY the JSON array.
+        """
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model=self.MODEL_LITE,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{encoded_image}"
+                                },
+                            },
+                        ],
+                    }
+                ],
+                temperature=0.0
+            )
+            
+            content = self._clean_json(response.choices[0].message.content)
+            parsed = json.loads(content)
+            if isinstance(parsed, dict) and len(parsed.keys()) == 1:
+                parsed = list(parsed.values())[0]
+            
+            if isinstance(parsed, list):
+                return parsed
+            return []
+            
+        except Exception as e:
+            logger.error("Lab image processing failed: %s", e)
+            return []
     async def get_ai_safety_flags(self, drug_name: str, patient_profile: dict) -> List[Any]:
         """
         Generates safety flags using Nova Pro when FDA label is missing.
@@ -356,9 +414,9 @@ class BedrockClient:
             "pregnant": patient_profile.get("is_pregnant"),
             "nursing": patient_profile.get("is_nursing"),
             "egfr": patient_profile.get("egfr"),
-            "allergies": [a.get("allergen") for a in patient_profile.get("allergies", [])],
-            "current_meds": [m.get("drug_name") for m in patient_profile.get("current_drugs", [])],
-            "conditions": patient_profile.get("conditions", []) 
+            "allergies": [a.get("allergen") for a in patient_profile.get("allergies", []) if isinstance(a, dict)],
+            "current_meds": [m.get("drug") for m in patient_profile.get("active_medications", []) if isinstance(m, dict)],
+            "adverse_reactions": [r.get("reaction") for r in patient_profile.get("adverse_reactions", []) if isinstance(r, dict)]
         }
         profile_str = json.dumps(minimal_profile, default=str)
         

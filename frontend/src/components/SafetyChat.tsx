@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect } from 'react'
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Send, User as UserIcon, Bot, Paperclip, X, Mic, Loader2, Square } from "lucide-react"
+import { Send, User as UserIcon, Bot, Paperclip, X, Mic, Loader2, Square, Volume2, Download, CheckCircle2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getSessionHistory, transcribeAudio } from '@/services/api'
+import { getSessionHistory, transcribeAudio, playTTS, downloadReport } from '@/services/api'
 import { useAudioRecorder } from "../hooks/useAudioRecorder"
 
 
@@ -14,6 +14,7 @@ interface Message {
   id: string
   role: 'user' | 'assistant'
   content: React.ReactNode
+  rawText?: string
   timestamp: Date
 }
 
@@ -41,6 +42,48 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
   // Voice Input Hook
   const { isRecording, startRecording, stopRecording } = useAudioRecorder()
   const [isTranscribing, setIsTranscribing] = useState(false)
+  
+  const [isPlayingAudio, setIsPlayingAudio] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const [seenSteps, setSeenSteps] = useState<string[]>([])
+
+  useEffect(() => {
+     if (processingStep && !seenSteps.includes(processingStep)) {
+        setSeenSteps(prev => [...prev, processingStep])
+     }
+  }, [processingStep])
+  
+  useEffect(() => {
+     if (!isProcessing) {
+        setSeenSteps([])
+     }
+  }, [isProcessing])
+
+  const handlePlayTTS = async (text: string, msgId: string) => {
+      if (isPlayingAudio === msgId) {
+          audioRef.current?.pause()
+          setIsPlayingAudio(null)
+          return
+      }
+      
+      setIsPlayingAudio(msgId)
+      try {
+          const url = await playTTS(text)
+          if (audioRef.current) {
+              audioRef.current.src = url
+              audioRef.current.play()
+              audioRef.current.onended = () => setIsPlayingAudio(null)
+          } else {
+              const audio = new Audio(url)
+              audioRef.current = audio
+              audio.play()
+              audio.onended = () => setIsPlayingAudio(null)
+          }
+      } catch(e) {
+          console.error(e)
+          setIsPlayingAudio(null)
+      }
+  }
 
   const handleMicClick = async () => {
       if (isRecording) {
@@ -128,10 +171,17 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                     {verdict.status === "green" ? "SAFE TO DISPENSE" :
                      verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
                   </h3>
-                  <p className="text-white/90 text-sm">
+                  <p className="text-white/90 text-sm mb-4">
                     {verdict.status === "green" ? "Acceptable to dispense." :
                      verdict.status === "yellow" ? "Please review the flags below before proceeding." : "Do not dispense."}
                   </p>
+                  <button 
+                      onClick={() => downloadReport(sessionId)}
+                      className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 text-white font-medium px-3 py-1.5 rounded-full backdrop-blur-sm transition-colors w-fit"
+                  >
+                      <Download className="h-3.5 w-3.5" />
+                      Download PDF Report
+                  </button>
                 </div>
              </div>
 
@@ -272,7 +322,7 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
         )}
         
         {!isLoadingHistory && messages.map((msg) => (
-            <div key={msg.id} className={cn("flex gap-3 fade-in slide-in-from-bottom-2 duration-300", msg.role === 'user' ? "flex-row-reverse" : "flex-row")}>
+            <div key={msg.id} className={cn("group flex gap-3 fade-in slide-in-from-bottom-2 duration-300", msg.role === 'user' ? "flex-row-reverse" : "flex-row")}>
                 <div className={cn(
                     "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
                     msg.role === 'user' ? "bg-slate-100 text-slate-600" : "bg-teal-100 text-teal-600"
@@ -304,25 +354,51 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
                             msg.content
                         )}
                     </div>
+                    {msg.role === 'assistant' && msg.rawText && (
+                        <div className="flex justify-end mt-2 pt-2 border-t border-slate-100/50 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button 
+                                onClick={() => handlePlayTTS(msg.rawText!, msg.id)}
+                                className={cn("flex items-center text-xs gap-1 px-2 py-1 rounded-md transition-colors", isPlayingAudio === msg.id ? "bg-teal-50 text-teal-600 font-medium" : "text-slate-400 hover:bg-slate-100 hover:text-slate-600")}
+                                disabled={isPlayingAudio !== null && isPlayingAudio !== msg.id}
+                            >
+                                {isPlayingAudio === msg.id ? <Loader2 className="h-3 w-3 animate-spin"/> : <Volume2 className="h-3 w-3" />}
+                                {isPlayingAudio === msg.id ? "Playing..." : "Read Aloud"}
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
         ))}
         
         {isProcessing && (
            <div className="flex items-start gap-3 fade-in slide-in-from-bottom-2 duration-300">
-               <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0">
+               <div className="h-8 w-8 rounded-full bg-teal-100 flex items-center justify-center shrink-0 shadow-sm">
                   <Bot className="h-4 w-4 text-teal-600 animate-pulse" />
                </div>
-               <div className="bg-slate-100 rounded-2xl rounded-tl-none px-4 py-3 text-sm text-slate-600 min-h-[44px] flex flex-col gap-1.5">
-                  {processingStep && (
-                    <span className="text-xs font-medium text-teal-600 animate-pulse">
-                      {processingStep}
-                    </span>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-                    <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
+               <div className="bg-white border border-slate-200 rounded-2xl rounded-tl-none p-4 text-sm text-slate-600 min-w-[280px] shadow-sm flex flex-col gap-3">
+                  <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-teal-600" />
+                    <span className="font-semibold text-slate-800 tracking-tight">Processing Safety Check...</span>
+                  </div>
+                  
+                  <div className="flex flex-col gap-2.5 relative pl-2 pt-1">
+                     {/* Line connecting nodes */}
+                     {seenSteps.length > 0 && <div className="absolute left-[11px] top-2 bottom-3 w-px bg-slate-200"></div>}
+                     
+                     {seenSteps.map((step, idx) => {
+                         const isLast = idx === seenSteps.length - 1;
+                         return (
+                            <div key={idx} className="flex items-start gap-3 relative z-10">
+                                <div className={cn("h-4 w-4 rounded-full border-2 flex items-center justify-center bg-white mt-0.5 shrink-0 transition-colors duration-500", isLast ? "border-teal-500 text-teal-500" : "border-slate-300")}>
+                                    {!isLast && <CheckCircle2 className="h-3.5 w-3.5 fill-slate-200 text-white" />}
+                                    {isLast && <div className="h-1.5 w-1.5 rounded-full bg-teal-500 animate-pulse"></div>}
+                                </div>
+                                <span className={cn("text-xs transition-all duration-300", isLast ? "text-teal-700 font-medium" : "text-slate-400 font-normal")}>
+                                    {step}
+                                </span>
+                            </div>
+                         )
+                     })}
                   </div>
                </div>
            </div>

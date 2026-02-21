@@ -14,6 +14,9 @@ from nova_guard.database import Base
 from nova_guard.models.user import User
 from nova_guard.models.patient import Patient, DrugHistory, AllergyRegistry, AdverseReaction
 from nova_guard.models.session import Session
+from nova_guard.models.audit import AuditLog
+from nova_guard.models.lab_result import LabResult
+from nova_guard.models.genetic_marker import GeneticMarker
 from nova_guard.config import settings
 
 # Alembic Config object
@@ -44,9 +47,18 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    if type_ == "table" and name.startswith("checkpoint"):
+        return False
+    return True
+
 def do_run_migrations(connection: Connection) -> None:
     """Run migrations with a connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection, 
+        target_metadata=target_metadata,
+        include_object=include_object
+    )
 
     with context.begin_transaction():
         context.run_migrations()

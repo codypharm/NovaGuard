@@ -30,6 +30,8 @@ export interface Patient {
   egfr?: number
   allergies: Allergy[]
   medical_history?: Condition[]
+  lab_results?: LabResult[]
+  genetic_markers?: GeneticMarker[]
 }
 
 export interface Allergy {
@@ -39,6 +41,25 @@ export interface Allergy {
 
 export interface Condition {
   condition: string
+}
+
+export interface LabResult {
+  id: number
+  test_name: string
+  value: number
+  unit: string
+  reference_range?: string
+  is_abnormal: boolean
+  source: string
+  collected_at: string
+}
+
+export interface GeneticMarker {
+  id: number
+  gene: string
+  phenotype: string
+  source: string
+  tested_at?: string
 }
 
 export interface ProcessResponse {
@@ -124,6 +145,43 @@ export async function transcribeAudio(audioBlob: Blob): Promise<{ text: string }
     }
     
     return res.json();
+}
+
+export async function playTTS(text: string): Promise<string> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+    
+    const res = await fetch(`${API_URL}/tts`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({text})
+    })
+    
+    if (!res.ok) {
+        throw new Error("Failed to generate TTS")
+    }
+    
+    const blob = await res.blob()
+    return URL.createObjectURL(blob)
+}
+
+export async function downloadReport(sessionId: string): Promise<void> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/sessions/${sessionId}/report`, { headers })
+    
+    if (!res.ok) {
+        throw new Error("Failed to download report")
+    }
+    
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `NovaGuard_Audit_${sessionId.substring(0,8)}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
 }
 
 // ============================================================================
@@ -279,6 +337,24 @@ export async function getPatientByMRN(mrn: string): Promise<Patient | null> {
     if (res.status === 404) return null
     if (!res.ok) throw new Error("Failed to lookup patient")
     return res.json()
+}
+
+export async function scanLabResults(patientId: number, file: File): Promise<LabResult[]> {
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    const reqHeaders: any = await getAuthHeaders();
+    
+    const res = await fetch(`${API_URL}/patients/${patientId}/labs/scan`, {
+        method: "POST",
+        headers: reqHeaders,
+        body: formData
+    });
+    
+    if (!res.ok) {
+        throw new Error("Failed to scan lab results");
+    }
+    return res.json();
 }
 
 export interface Session {

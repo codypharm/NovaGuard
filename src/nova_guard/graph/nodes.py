@@ -99,7 +99,7 @@ async def image_intake_node(state: PatientState) -> dict:
         return {
             "extracted_data": None,
             "input_type": "image",
-            # "messages": [" Image analysis failed. Please try again or type the prescription manually."]
+            "messages": [AIMessage(content="⚠️ Image analysis failed or no text found. Please try again or type the prescription manually.")]
         }
         
     return {
@@ -333,31 +333,88 @@ async def fetch_patient_node(state: PatientState) -> dict:
                 # "messages": [f"❌ Patient ID {state['patient_id']} not found"]
             }
         
-        # Convert to dict for state
+        # Prepare full profile dictionary
+        # HIPAA DE-IDENTIFICATION: Replace name with ID to prevent PHI exposure to LLMs
+        active_meds = [d for d in patient.drug_history if d.is_active]
+        allergies = patient.allergies
+        reactions = patient.adverse_reactions
+        labs = patient.lab_results
+        pgx = patient.genetic_markers
+
+        current_egfr = patient.egfr
+        latest_egfr_lab = next((lab for lab in sorted(labs, key=lambda x: x.collected_at, reverse=True) if "egfr" in lab.test_name.lower()), None)
+        if latest_egfr_lab:
+            current_egfr = latest_egfr_lab.value
+
         profile = {
             "id": patient.id,
-            "name": patient.name,
+            "name": f"Patient-{patient.id}", # DE-IDENTIFIED
             "age_years": patient.age_years,
+            "weight": patient.weight,
+            "height": patient.height,
             "is_pregnant": patient.is_pregnant,
             "is_nursing": patient.is_nursing,
-            "egfr": patient.egfr,
-            "current_drugs": [
-                {"drug_name": d.drug_name, "dose": d.dose, "frequency": d.frequency}
-                for d in patient.drug_history if d.is_active
-            ],
+            "egfr": current_egfr,
+            "medical_record_number": "REDACTED", # DE-IDENTIFIED
             "allergies": [
-                {"allergen": a.allergen, "type": a.allergy_type, "severity": a.severity}
-                for a in patient.allergies
+                {
+                    "allergen": a.allergen,
+                    "type": a.allergy_type,
+                    "severity": a.severity,
+                    "symptoms": a.symptoms
+                }
+                for a in allergies
+            ],
+            "active_medications": [
+                {
+                    "drug": med.drug_name,
+                    "dose": med.dose,
+                    "frequency": med.frequency
+                }
+                for med in active_meds
+            ],
+            "drug_history_all": [
+                {
+                    "drug": med.drug_name,
+                    "dose": med.dose,
+                    "frequency": med.frequency,
+                    "is_active": med.is_active,
+                    "start_date": med.start_date.isoformat() if getattr(med, "start_date", None) else None,
+                    "end_date": med.end_date.isoformat() if getattr(med, "end_date", None) else None
+                }
+                for med in patient.drug_history
             ],
             "adverse_reactions": [
-                {"drug_name": r.drug_name, "symptoms": r.symptoms, "severity": r.severity}
-                for r in patient.adverse_reactions
+                {
+                    "drug": r.drug_name,
+                    "reaction": r.symptoms,
+                    "severity": r.severity
+                }
+                for r in reactions
+            ],
+            "lab_results": [
+                {
+                    "test_name": lab.test_name,
+                    "value": lab.value,
+                    "unit": lab.unit,
+                    "is_abnormal": lab.is_abnormal,
+                    "collected_at": lab.collected_at.isoformat() if lab.collected_at else None
+                }
+                for lab in labs
+            ],
+            "genetic_markers": [
+                {
+                    "gene": g.gene,
+                    "phenotype": g.phenotype,
+                    "tested_at": g.tested_at.isoformat() if g.tested_at else None
+                }
+                for g in pgx
             ]
         }
         
         return {
             "patient_profile": profile,
-            # "messages": [f"✅ Loaded profile for {patient.name} (Age: {patient.age_years})"]
+            "lab_results": profile.get("lab_results", [])
         }
 
 
@@ -449,6 +506,54 @@ async def fetch_medical_knowledge_node(state: PatientState) -> dict:
         "prescriptions": prescriptions 
     }
 
+def check_duplicate_therapies(rx, index, current_drugs, prescriptions, flags):
+    """Helper to check for duplicate therapies against current and new meds."""
+    from nova_guard.schemas.patient import SafetyFlag
+    drug_name = rx.drug_name.lower()
+    
+    # 1. vs Current Meds
+    if drug_name in current_drugs:
+        flags.append(SafetyFlag(
+            severity="warning",
+            category="therapeutic_duplication",
+            message=f"Patient already taking **{rx.drug_name}**",
+            source="Current medication list"
+        ))
+        
+    # 2. vs Other New Prescriptions
+    for j, other_rx in enumerate(prescriptions):
+        if index < j and drug_name == other_rx.drug_name.lower():
+            flags.append(SafetyFlag(
+                severity="warning",
+                category="duplicate_therapy",
+                message=f"Duplicate prescription in current request: **{rx.drug_name}** appears multiple times.",
+                source="Current Request"
+            ))
+
+def calculate_polypharmacy_score(prescriptions, current_drugs) -> dict:
+    """Calculates a basic polypharmacy risk score."""
+    rx_names = [r.drug_name.lower() for r in prescriptions]
+    total_drugs = list(set(rx_names + current_drugs))
+    
+    count = len(total_drugs)
+    if count < 5:
+        return {"score": 0, "risk": "Low", "count": count, "details": "Fewer than 5 medications."}
+        
+    score = count - 4
+    high_risk_classes = ["amitriptyline", "diphenhydramine", "oxybutynin", "promethazine", "quetiapine", "zolpidem", "tramadol", "codeine", "alprazolam", "lorazepam"]
+    burden = sum(1 for d in total_drugs if any(hr in d for hr in high_risk_classes))
+    
+    score += (burden * 2)
+    
+    if score >= 5:
+        risk = "High"
+    elif score >= 3:
+        risk = "Moderate"
+    else:
+        risk = "Low"
+        
+    return {"score": score, "risk": risk, "count": count, "details": f"Patient is taking {count} active medications. High-risk burden: {burden}."}
+
 def auditor_node(state: PatientState) -> dict:
     from nova_guard.schemas.patient import SafetyFlag
 
@@ -459,7 +564,7 @@ def auditor_node(state: PatientState) -> dict:
     if not prescriptions or not profile:
         return {"safety_flags": flags}
 
-    current_drugs = [d["drug_name"].lower() for d in profile.get("current_drugs", [])]
+    current_drugs = [d["drug"].lower() for d in profile.get("active_medications", [])]
     
     # Check each new prescription
     for i, rx in enumerate(prescriptions):
@@ -467,34 +572,38 @@ def auditor_node(state: PatientState) -> dict:
         
         # 1. Prior Adverse Reaction Check
         for reaction in profile.get("adverse_reactions", []):
-            if drug_name in reaction.get("drug_name", "").lower():
+            if drug_name in reaction.get("drug", "").lower():
                 flags.append(SafetyFlag(
                     severity="warning",
                     category="prior_adverse_reaction",
-                    message=f"Prior {reaction['severity']} reaction to {reaction['drug_name']}: {reaction['symptoms']}",
+                    message=f"Prior {reaction['severity']} reaction to {reaction['drug']}: {reaction['reaction']}",
                     source="Patient history"
                 ))
 
-        # 2. Duplicate Therapy (vs Current Meds)
-        if drug_name in current_drugs:
-            flags.append(SafetyFlag(
-                severity="warning",
-                category="therapeutic_duplication",
-                message=f"Patient already taking **{rx.drug_name}**",
-                source="Current medication list"
-            ))
-            
-        # 3. Duplicate Therapy (vs Other New Prescriptions)
-        for j, other_rx in enumerate(prescriptions):
-            if i != j and drug_name == other_rx.drug_name.lower():
-                # Avoid duplicate flags for the same pair (only flag once)
-                if i < j: 
-                    flags.append(SafetyFlag(
-                        severity="warning",
-                        category="duplicate_therapy",
-                        message=f"Duplicate prescription in current request: **{rx.drug_name}** appears multiple times.",
-                        source="Current Request"
-                    ))
+        # 2. Duplicate Therapy Checks
+        check_duplicate_therapies(rx, i, current_drugs, prescriptions, flags)
+        
+        # 3. Longitudinal Discontinuation Check
+        for past_med in profile.get("drug_history_all", []):
+            if not past_med.get("is_active") and drug_name in past_med.get("drug", "").lower():
+                end_date_str = past_med.get("end_date") or "the past"
+                flags.append(SafetyFlag(
+                    severity="warning",
+                    category="prior_discontinuation",
+                    message=f"Patient was previously prescribed **{rx.drug_name}** but it was discontinued on {end_date_str}. Ensure re-challenge is intentional.",
+                    source="Longitudinal History"
+                ))
+
+    # 4. Polypharmacy Risk Score
+    poly_eval = calculate_polypharmacy_score(prescriptions, current_drugs)
+    if poly_eval["risk"] in ["Moderate", "High"]:
+        severity = "critical" if poly_eval["risk"] == "High" else "warning"
+        flags.append(SafetyFlag(
+            severity=severity,
+            category="polypharmacy",
+            message=f"**Polypharmacy Risk ({poly_eval['risk']}):** {poly_eval['details']} Increased risk of adverse events and non-adherence.",
+            source="Scoring Algorithm"
+        ))
 
     return {
         "safety_flags": flags,
@@ -522,7 +631,8 @@ async def assistant_node(state: PatientState) -> dict:
             "standard dosing & key adjustments (renal/hepatic/elderly), "
             "black box warnings (quote if present), major contraindications, "
             "serious warnings, clinically important interactions, "
-            "pregnancy/lactation risks. Use precise, professional language."
+            "pregnancy/lactation risks. Use precise, professional language. "
+            "If the drug name is ambiguous or could map to multiple agents, ask the pharmacist to clarify."
         ),
         "CLINICAL_QUERY": (
             "Act as high-reliability patient-safety clinical decision support. "
@@ -530,7 +640,8 @@ async def assistant_node(state: PatientState) -> dict:
             "age / pregnancy status. "
             "Clearly highlight: allergy/cross-reactivity risk, serious DDIs (Drug-Drug Interactions), "
             "duplicate therapy, required dose adjustments, critical monitoring. "
-            "Use cautious, factual, non-alarmist tone."
+            "Use cautious, factual, non-alarmist tone. "
+            "If you need more clinical insight from the pharmacist to safely answer the query, explicitly ask them a clarifying question."
         ),
         "AUDIT": (
             "Explain automated prescription safety audit results to pharmacist. "
@@ -540,7 +651,8 @@ async def assistant_node(state: PatientState) -> dict:
             "3. Drug-Drug Interactions (if any)\n"
             "4. Clinical rationale & severity for each finding\n"
             "5. Primary patient safety implication\n"
-            "6. Recommended pharmacist actions"
+            "6. Recommended pharmacist actions\n"
+            "If the prescription details or patient profile is missing critical context to make a safe judgment, explicitly ask the user to clarify."
         ),
         "GENERAL_CHAT": (
             "You are Nova Guard — friendly, professional hospital pharmacist colleague. "
@@ -561,7 +673,9 @@ async def assistant_node(state: PatientState) -> dict:
         except Exception:
             return str(obj)[:800] + "…" if len(str(obj)) > 800 else str(obj)
 
-    patient_profile_str = safe_json(state.get("patient_profile"), "No patient profile selected")
+    # The patient profile in state is already de-identified by fetch_patient_node
+    # to maintain HIPAA compliance.
+    patient_profile_str = json.dumps(state.get("patient_profile", {}), indent=2)
     verdict_str = safe_json(state.get("verdict"), "No verdict available")
     
     # Use drug_info_map for multi-drug context
@@ -614,15 +728,25 @@ async def assistant_node(state: PatientState) -> dict:
         • Pharmacology/dosing/indication/warning answers MUST come from FDA REFERENCE DATA only
         • ALWAYS cross-check PATIENT PROFILE for allergies, serious ADRs, relevant organ function
         • CHECK FOR DRUG-DRUG INTERACTIONS between all prescribed drugs (using generic names from FDA data)
+        • If GENETIC MARKERS (PGx) exist in the patient profile, CHECK for gene-drug interactions (e.g., CYP2D6 poor metabolizer + codeine)
+        • If LAB RESULTS exist in the patient profile, CHECK for organ impairment (low eGFR → renal dose adjust, elevated ALT/AST → hepatic caution)
         • Be extremely cautious regarding: anaphylaxis risk, cross-reactivity, QT prolongation, serotonin syndrome, major CYP/DDI risks
         • Use professional, precise, pharmacist-to-pharmacist language
-        • Format EVERY answer using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
         • If Red/Yellow flags exist — mention them EARLY and clearly (never bury safety info)
         • When data is missing/insufficient → clearly state: "Information not available in current context"
+        • If you need additional clinical context to give a safe recommendation, ASK the pharmacist a clarifying question
         • NEVER give direct patient-facing advice — always frame as recommendation for the reviewing pharmacist
         • Answer only the current question — do not add unsolicited information
         • Think step-by-step before answering safety-sensitive questions
-        • Clean up data , ensure no duplicate information
+
+        OUTPUT FORMATTING — STRICTLY ENFORCE:
+        • Format using clean Markdown: headings, bullets, **bold critical warnings**, tables when comparing
+        • ONLY include content that is directly relevant to answering the user's question — omit sections with no data
+        • NEVER output empty bullet points, empty braces {{}}, empty brackets [], or placeholder text like "N/A" or "None"
+        • If a "References" section has no actual URLs to show, DO NOT include the section at all
+        • If you include references, format each as: **Source Name** — [URL](URL) — only if you have a real URL
+        • Do NOT show raw JSON, empty objects, or data structure artifacts in the response
+        • Keep the response concise and scannable — no filler paragraphs
         Reply professionally, clearly and helpfully.
         """
 
@@ -671,25 +795,31 @@ async def tools_node(state: PatientState) -> dict:
 
     # 1. Action: Generate External Reference Link
     if action == "open_source":
-        # We don't use webbrowser.open() here because it's a backend service.
-        # Instead, we send the URL to the React frontend to handle window.open().
+        if not drug:
+            return {
+                "messages": messages + [AIMessage(content="⚠️ Could not determine which drug to look up. Please specify a drug name.")],
+                "system_action": None
+            }
         source_url = f"https://dailymed.nlm.nih.gov/dailymed/search.cfm?query={drug}"
         return {
             "messages": messages + [AIMessage(content=f"🔗 Generated clinical reference link for {drug}.")],
             "external_url": source_url,
-            "system_action": None  # Clear the action once handled
+            "system_action": None
         }
 
     # 2. Action: Generate PDF Audit Report
     if action == "generate_report":
-        # Logic to trigger your report generation service (e.g., using ReportLab or FPDF)
-        report_status = "📄 Clinical Audit Report (PDF) is being generated for the pharmacist."
+        report_status = "📄 Clinical Audit Report (PDF) is being generated... You can download it directly from the top of the chat panel."
         return {
             "messages": messages + [AIMessage(content=report_status)],
             "system_action": None
         }
 
-    # return {"messages": messages + [AIMessage(content="⚠️ Tool action failed to trigger a response.")]}
+    # Fallback: unrecognized action — clear to prevent re-execution loop
+    return {
+        "messages": messages + [AIMessage(content=f"⚠️ Unrecognized tool action '{action}'. Available actions: open_source, generate_report.")],
+        "system_action": None
+    }
 
 async def clinical_safety_node(state: PatientState) -> dict:
     """
@@ -748,7 +878,16 @@ async def clinical_safety_node(state: PatientState) -> dict:
                 elif "Hepatic" in flag.message:
                     # Show if liver condition exists
                     conditions = " ".join([c.get("condition", "") for c in profile.get("medical_conditions", [])]).lower()
-                    if any(x in conditions for x in ["liver", "cirrhosis", "hepatitis", "hepatic", "jaundice"]):
+                    has_hepatic_risk = any(x in conditions for x in ["liver", "cirrhosis", "hepatitis", "hepatic", "jaundice"])
+                    
+                    # Also check lab results for abnormal liver enzymes
+                    for lab in profile.get("lab_results", []):
+                        test_name = lab.get("test_name", "").lower()
+                        if lab.get("is_abnormal") and any(x in test_name for x in ["alt", "ast", "bilirubin", "alk", "alp"]):
+                            has_hepatic_risk = True
+                            break
+                            
+                    if has_hepatic_risk:
                         all_flags.append(flag)
 
             # E. Text-Based Checks (OpenFDA/DailyMed Logic)
@@ -771,6 +910,43 @@ async def clinical_safety_node(state: PatientState) -> dict:
             logger.warning(f"No FDA label data found for {rx.drug_name} — triggering AI Fallback")
             ai_flags = await bedrock_client.get_ai_safety_flags(rx.drug_name, profile)
             all_flags.extend(ai_flags)
+
+    # 1.5 PGx SAFETY CHECKS (Pharmacogenomics)
+    from nova_guard.schemas.patient import SafetyFlag
+    pgx_markers = profile.get("genetic_markers", [])
+    if pgx_markers:
+        for rx in prescriptions:
+            drug = rx.drug_name.lower()
+            for marker in pgx_markers:
+                gene = marker.get("gene", "").upper()
+                phenotype = marker.get("phenotype", "").lower()
+                
+                # CYP2D6 Poor Metabolizer Checks
+                if "CYP2D6" in gene and "poor" in phenotype:
+                    if drug in ["codeine", "tramadol"]:
+                        all_flags.append(SafetyFlag(
+                            severity="critical",
+                            category="pharmacogenomics",
+                            message=f"**PGx Alert (CYP2D6 Poor Metabolizer):** Patient lacks CYP2D6 enzyme to convert **{rx.drug_name}** to its active metabolite. Significantly reduced efficacy; consider alternative.",
+                            source="Patient genetic profile"
+                        ))
+                    elif drug in ["fluoxetine", "paroxetine", "venlafaxine"]:
+                        all_flags.append(SafetyFlag(
+                            severity="warning",
+                            category="pharmacogenomics",
+                            message=f"**PGx Alert (CYP2D6 Poor Metabolizer):** Reduced metabolism of **{rx.drug_name}**. Monitor for toxicity or consider lower starting dose.",
+                            source="Patient genetic profile"
+                        ))
+                
+                # CYP2C19 Poor Metabolizer Checks
+                if "CYP2C19" in gene and "poor" in phenotype:
+                    if drug in ["clopidogrel"]:
+                        all_flags.append(SafetyFlag(
+                            severity="critical",
+                            category="pharmacogenomics",
+                            message=f"**PGx Alert (CYP2C19 Poor Metabolizer):** Diminished antiplatelet effect of **{rx.drug_name}**. Consider alternative (e.g., prasugrel, ticagrelor).",
+                            source="Patient genetic profile"
+                        ))
 
     # 2. BATCH CHECKS (Interactions)
     if len(rxcuis) >= 2:

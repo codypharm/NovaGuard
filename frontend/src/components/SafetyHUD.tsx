@@ -6,6 +6,7 @@ import { PatientForm } from '@/components/PatientForm'
 import { type Verdict } from '@/components/SafetyAnalysis'
 import { streamClinicalInteraction, type Patient } from '@/services/api'
 import { useSessionContext } from "@/context/SessionContext"
+import { ShieldAlert, Dna } from 'lucide-react'
 import DrugOperationsModule from '@/components/DrugOperationsModule'
 import PatientDatabaseModule from '@/components/PatientDatabaseModule'
 
@@ -85,13 +86,25 @@ export function SafetyHUD() {
   return (
     <DashboardLayout>
       <div className="flex items-center justify-between mb-8">
-         <h1 className="text-2xl font-bold tracking-tight text-slate-900 truncate mr-4">
+         <h1 className="text-2xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
             {activeModule === 'drug-operations' 
                 ? "Drug Operations Center" 
                 : activeModule === 'patient-database'
                 ? "Patient Database & Profiles"
                 : (patient ? `Safety Check - ${patient.name}` : "New Safety Check")
             }
+            {patient && patient.genetic_markers && patient.genetic_markers.length > 0 && (
+                <span title="PGx Data Available" className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-purple-100/80 text-purple-700 rounded-md font-semibold border border-purple-200">
+                    <Dna className="h-3.5 w-3.5" />
+                    PGx Active
+                </span>
+            )}
+            {patient && verdict?.flags?.some(f => f.category === 'polypharmacy') && (
+                <span title="Polypharmacy Risk Detected" className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-amber-100/80 text-amber-700 rounded-md font-semibold border border-amber-200">
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    Polypharmacy Alert
+                </span>
+            )}
          </h1>
          <div className="flex-shrink-0">
             <Header /> 

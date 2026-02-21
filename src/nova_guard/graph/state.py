@@ -34,7 +34,6 @@ class PatientState(TypedDict):
     # Extracted Data (normalized from any input modality)
     # ========================================================================
     prescriptions: list[PrescriptionData]  # List of all extracted drugs
-    extracted_data: Optional[PrescriptionData] | None  # DEPRECATED: kept for backward compat temporarily
     confidence_score: float  # 0.0 to 1.0 (90% threshold for HITL)
     
     # ========================================================================
@@ -46,7 +45,10 @@ class PatientState(TypedDict):
     # --- Medical Knowledge Cache ---
     # Store OpenFDA or DailyMed data here so the Assistant can access it
     drug_info_map: Optional[dict[str, dict]] # Map of drug_name -> info dict
-    drug_info: Optional[dict] # DEPRECATED: single drug info
+    
+    # --- Additional Clinical Data ---
+    lab_results: Optional[list[dict]]        # Multimodal lab extraction context
+    genetic_markers: Optional[list[dict]]    # PGx alleles mapped to phenotype
     
     # ========================================================================
     # Safety Analysis Results

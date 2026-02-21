@@ -6,6 +6,9 @@
 
 Nova Clinical Guard is a professional-grade clinical safety platform designed for pharmacists and clinicians. It transforms "dirty" medical data (handwritten scripts, fragments) into structured clinical wisdom, performing real-time audits against a patient's unique history and the latest FDA consensus.
 
+## 🔒 HIPAA Compliance & Architecture
+*For Hackathon Judges:* The Nova Guard MVP demonstrates a HIPAA-aware architecture. Before transmitting clinical data to Amazon Bedrock, patient names and direct identifiers are stripped from the LLM context and replaced with generic IDs (e.g., `Patient-123`). The system maintains full audit trails of every interaction. For production deployment, this system assumes hosting within an AWS environment covered by a valid HIPAA Business Associate Agreement (BAA) for Amazon Nova models.
+
 ## ✨ Core Features
 
 ### 🏦 Safety HUD & Multimodal Ingestion
