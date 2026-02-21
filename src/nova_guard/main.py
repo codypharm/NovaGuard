@@ -337,6 +337,23 @@ async def get_patient_labs(
          raise HTTPException(status_code=404, detail="Patient not found")
     return patient.lab_results
 
+@app.delete("/patients/{patient_id}/labs/{lab_id}", status_code=204)
+async def delete_patient_lab(
+    patient_id: int,
+    lab_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a specific lab result for a patient."""
+    patient = await patient_crud.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    
+    success = await patient_crud.delete_lab_result(db, lab_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Lab result not found")
+        
+    await db.commit()
+    return None
 
 # ============================================================================
 # Genetic Markers Endpoints
@@ -394,7 +411,7 @@ async def process_tts(request: TTSRequest):
 async def get_session_report(
     session_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_user)
 ):
     from nova_guard.api.sessions import get_session
     from nova_guard.services.report_service import generate_audit_report

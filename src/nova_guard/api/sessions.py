@@ -18,6 +18,8 @@ async def get_session(db: AsyncSession, session_id: str) -> Optional[Session]:
             selectinload(Session.patient).selectinload(Patient.drug_history),
             selectinload(Session.patient).selectinload(Patient.allergies),
             selectinload(Session.patient).selectinload(Patient.adverse_reactions),
+            selectinload(Session.patient).selectinload(Patient.lab_results),
+            selectinload(Session.patient).selectinload(Patient.genetic_markers),
         )
     )
     return result.scalar_one_or_none()
@@ -89,7 +91,9 @@ async def list_recent_sessions(db: AsyncSession, user_id: str, limit: int = 20) 
         .options(
             selectinload(Session.patient).selectinload(Patient.allergies),
             selectinload(Session.patient).selectinload(Patient.drug_history),
-            selectinload(Session.patient).selectinload(Patient.adverse_reactions)
+            selectinload(Session.patient).selectinload(Patient.adverse_reactions),
+            selectinload(Session.patient).selectinload(Patient.lab_results),
+            selectinload(Session.patient).selectinload(Patient.genetic_markers)
         )
     )
     return list(result.scalars().all())

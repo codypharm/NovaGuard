@@ -22,8 +22,8 @@ async def create_patient(db: AsyncSession, patient: PatientCreate) -> Patient:
     db_patient = Patient(**patient.model_dump())
     db.add(db_patient)
     await db.flush()
-    await db.refresh(db_patient)
-    return db_patient
+    await db.commit()
+    return await get_patient(db, db_patient.id)
 
 
 async def update_patient(
@@ -58,8 +58,8 @@ async def update_patient(
         setattr(db_patient, key, value)
 
     await db.flush()
-    await db.refresh(db_patient)
-    return db_patient
+    await db.commit()
+    return await get_patient(db, patient_id)
 
 
 async def get_patient(db: AsyncSession, patient_id: int) -> Optional[Patient]:
@@ -88,6 +88,7 @@ async def get_patient_by_mrn(db: AsyncSession, mrn: str) -> Optional[Patient]:
             selectinload(Patient.allergies),
             selectinload(Patient.adverse_reactions),
             selectinload(Patient.lab_results),
+            selectinload(Patient.genetic_markers),
         )
     )
     return result.scalar_one_or_none()
@@ -104,6 +105,7 @@ async def get_patients(
             selectinload(Patient.allergies),
             selectinload(Patient.adverse_reactions),
             selectinload(Patient.lab_results),
+            selectinload(Patient.genetic_markers),
         )
         .offset(skip)
         .limit(limit)
@@ -163,6 +165,17 @@ async def add_lab_result(
     await db.flush()
     await db.refresh(db_lab)
     return db_lab
+
+async def delete_lab_result(db: AsyncSession, lab_id: int) -> bool:
+    """Delete a lab result."""
+    from nova_guard.models.lab_result import LabResult
+    result = await db.execute(select(LabResult).where(LabResult.id == lab_id))
+    db_lab = result.scalar_one_or_none()
+    if db_lab:
+        await db.delete(db_lab)
+        await db.flush()
+        return True
+    return False
 
 async def add_genetic_marker(
     db: AsyncSession, marker: GeneticMarkerCreate

@@ -357,6 +357,18 @@ export async function scanLabResults(patientId: number, file: File): Promise<Lab
     return res.json();
 }
 
+export async function deleteLabResult(patientId: number, labId: number): Promise<void> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/patients/${patientId}/labs/${labId}`, {
+        method: "DELETE",
+        headers: headers
+    });
+    
+    if (!res.ok) {
+        throw new Error("Failed to delete lab result");
+    }
+}
+
 export interface Session {
     id: string
     title: string
@@ -371,7 +383,7 @@ export async function getSessions(limit: number = 20): Promise<Session[]> {
     return res.json()
 }
 
-export async function createSession(sessionId: string, patientId?: number): Promise<void> {
+export async function createSession(sessionId: string, patientId?: number): Promise<Session> {
     const formData = new FormData()
     formData.append("session_id", sessionId)
     if (patientId) {
@@ -386,6 +398,7 @@ export async function createSession(sessionId: string, patientId?: number): Prom
     })
     
     if (!res.ok) throw new Error("Failed to create session")
+    return res.json()
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {

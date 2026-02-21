@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react"
-import { User, AlertTriangle, Edit2, Search, X, Check, Activity, Dna, Camera } from "lucide-react" // Added icons
+import { User, AlertTriangle, Edit2, Search, X, Check, Activity, Dna, Camera, Trash2, ChevronDown, ChevronRight } from "lucide-react"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { createPatient, updatePatient, getPatientByMRN, scanLabResults, type Patient } from "@/services/api"
+import { createPatient, updatePatient, getPatientByMRN, scanLabResults, deleteLabResult, type Patient } from "@/services/api"
 
 interface PatientFormProps {
   initialPatient: Patient | null
@@ -29,11 +30,18 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
   })
   
   const [isScanningLab, setIsScanningLab] = useState(false)
+  const [expandedLabDates, setExpandedLabDates] = useState<Record<string, boolean>>({})
+
+  const toggleLabDate = (date: string) => {
+      setExpandedLabDates(prev => ({...prev, [date]: !prev[date]}))
+  }
 
   useEffect(() => {
     if (initialPatient) {
         setFormData(initialPatient)
         setIsEditing(false)
+    } else {
+        setIsEditing(true)
     }
   }, [initialPatient])
 
@@ -47,14 +55,14 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                   ...patient,
                   // Ensure allergies are mapped if necessary, assuming API returns correct shape
               })
-              // Optional: Auto-switch to view mode? No, let user review.
+              toast.success("Patient profile loaded")
           } else {
               // Not found
-              console.log("Patient not found")
-              // Could show a toast here
+              toast.error("Patient not found with that MRN")
           }
       } catch (err) {
           console.error("Lookup failed", err)
+          toast.error("Failed to search for patient")
       } finally {
           setIsSearching(false)
       }
@@ -94,9 +102,10 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
 
         setIsEditing(false)
         onSave(savedPatient)
+        toast.success("Profile synced successfully")
     } catch (err) {
         console.error("Failed to save patient", err)
-        alert("Failed to save patient. Check console.")
+        toast.error("Failed to save patient profile")
     } finally {
         setIsSaving(false)
     }
@@ -151,19 +160,64 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     )}
                 </div>
                 
+                
+                {/* GENETICS (PGx) VIEW */}
+                <div className="flex items-center gap-2 mt-5 mb-2">
+                    <Dna className="h-4 w-4 text-purple-500" />
+                    <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Genetics (PGx)</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                    {initialPatient.genetic_markers && initialPatient.genetic_markers.length > 0 ? (
+                        initialPatient.genetic_markers.map((marker, i) => (
+                            <span key={i} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-800 border border-purple-100">
+                                {marker.gene}: {marker.phenotype}
+                            </span>
+                        ))
+                    ) : (
+                        <span className="text-sm text-slate-400 italic">No genetic markers tracked</span>
+                    )}
+                </div>
+
                 {/* LAB RESULTS VIEW */}
                 <div className="flex items-center gap-2 mt-5 mb-2">
                     <Activity className="h-4 w-4 text-blue-500" />
                     <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Lab Results</span>
                 </div>
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-3">
                     {initialPatient.lab_results && initialPatient.lab_results.length > 0 ? (
-                        initialPatient.lab_results.map((lab, i) => (
-                            <div key={i} className="text-xs bg-slate-50 border p-2 rounded flex justify-between items-center">
-                                <span className="font-medium text-slate-700">{lab.test_name}</span>
-                                <span className={lab.is_abnormal ? "text-red-600 font-bold" : "text-emerald-600 font-semibold"}>
-                                    {lab.value} {lab.unit}
-                                </span>
+                        Object.entries(
+                            initialPatient.lab_results.reduce((acc: Record<string, any[]>, lab: any) => {
+                                const date = lab.collected_at ? new Date(lab.collected_at).toLocaleDateString() : 'Unknown Date';
+                                if (!acc[date]) acc[date] = [];
+                                acc[date].push(lab);
+                                return acc;
+                            }, {})
+                        ).map(([date, labs]: [string, any]) => (
+                            <div key={date} className="bg-white border rounded shadow-sm overflow-hidden">
+                                <button 
+                                    onClick={() => toggleLabDate(date)}
+                                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                >
+                                    <span className="text-xs font-semibold text-slate-700">{date} ({labs.length} tests)</span>
+                                    {expandedLabDates[date] ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                                </button>
+                                {expandedLabDates[date] && (
+                                    <div className="p-2 flex flex-col gap-1 border-t">
+                                        {labs.map((lab: any, i: number) => (
+                                            <div key={i} className="text-xs bg-slate-50/50 p-1.5 rounded flex justify-between items-center">
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium text-slate-700">{lab.test_name}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className={lab.is_abnormal ? "text-red-600 font-bold" : "text-emerald-600 font-semibold"}>
+                                                        {lab.value} {lab.unit}
+                                                    </span>
+                                                    <div className="text-[10px] text-slate-400">Range: {lab.reference_range}</div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         ))
                     ) : (
@@ -186,6 +240,44 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     ) : (
                         <span className="text-sm text-slate-400 italic">No genetic markers tracked</span>
                     )}
+                </div>
+
+                {/* LAB UPLOAD (always visible in view mode) */}
+                <div className="mt-5 pt-4 border-t border-slate-100">
+                    <div className="flex items-center gap-2 mb-3">
+                        <Camera className="h-4 w-4 text-blue-500" />
+                        <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Upload Lab Report</span>
+                    </div>
+                    <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
+                        <input type="file" id="lab-image-view" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+                        <Button 
+                            size="sm" 
+                            variant="secondary" 
+                            className="w-full sm:w-auto bg-white shrink-0"
+                            disabled={isScanningLab}
+                            onClick={async () => {
+                                const input = document.getElementById("lab-image-view") as HTMLInputElement
+                                const file = input.files?.[0]
+                                if (!file) return toast.error("Select an image first")
+                                
+                                setIsScanningLab(true)
+                                toast.info("Scanning lab report...")
+                                try {
+                                    const newLabs = await scanLabResults(initialPatient.id, file)
+                                    toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
+                                    input.value = ''
+                                    // Trigger parent refresh
+                                    onSave({...initialPatient, lab_results: [...(initialPatient.lab_results || []), ...newLabs]})
+                                } catch (e) {
+                                    toast.error("Failed to scan labs")
+                                } finally {
+                                    setIsScanningLab(false)
+                                }
+                            }}
+                        >
+                            {isScanningLab ? "Scanning..." : <><Camera className="h-4 w-4 mr-1" /> Scan</>}
+                        </Button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -378,43 +470,225 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                 )}
             </div>
         </div>
-        {/* Labs Scanner */}
-        {formData.id && (
-            <div className="space-y-3 pt-4 border-t border-slate-100">
-                <Label className="flex items-center gap-2 text-blue-700"><Activity className="h-4 w-4" /> Lab Results Scanner</Label>
-                <div className="flex gap-2 items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
-                    <input type="file" id="lab-image" accept="image/*" className="text-xs flex-1 file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
-                    <Button 
-                        size="sm" 
-                        variant="secondary" 
-                        className="bg-white"
-                        disabled={isScanningLab}
-                        onClick={async () => {
-                            const input = document.getElementById("lab-image") as HTMLInputElement
-                            const file = input.files?.[0]
-                            if (!file) return alert("Select an image first")
+
+        {/* Genetics (PGx) */}
+        <div className="space-y-2">
+            <Label className="flex items-center gap-2 text-purple-700"><Dna className="h-4 w-4" /> Genetics (PGx)</Label>
+            <div className="flex gap-2">
+                <Input 
+                    id="gene-input"
+                    placeholder="Gene (e.g. CYP2C19)"
+                    className="w-1/3"
+                />
+                <Input 
+                    id="phenotype-input"
+                    placeholder="Phenotype (e.g. Poor Metabolizer)"
+                    className="flex-1"
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                            e.preventDefault()
+                            const geneInput = document.getElementById("gene-input") as HTMLInputElement
+                            const phenotypeInput = document.getElementById("phenotype-input") as HTMLInputElement
+                            const gene = geneInput.value.trim()
+                            const phenotype = phenotypeInput.value.trim()
                             
-                            setIsScanningLab(true)
-                            try {
-                                const newLabs = await scanLabResults(formData.id!, file)
-                                setFormData(prev => ({
-                                    ...prev,
-                                    lab_results: [...(prev.lab_results || []), ...newLabs]
-                                }))
-                                alert(`Successfully extracted ${newLabs.length} biomarkers!`)
-                                input.value = ''
-                            } catch (e) {
-                                alert("Failed to scan labs")
-                            } finally {
-                                setIsScanningLab(false)
+                            if (gene && phenotype) {
+                                const current = formData.genetic_markers || []
+                                if (!current.some(g => g.gene.toLowerCase() === gene.toLowerCase())) {
+                                    setFormData({
+                                        ...formData,
+                                        genetic_markers: [...current, { id: Date.now(), gene, phenotype, source: "Manual" }]
+                                    })
+                                }
+                                geneInput.value = ""
+                                phenotypeInput.value = ""
+                                geneInput.focus()
                             }
-                        }}
-                    >
-                        {isScanningLab ? "Scanning..." : <><Camera className="h-4 w-4 mr-2" /> Scan Report</>}
-                    </Button>
+                        }
+                    }}
+                />
+                <Button 
+                    variant="outline" 
+                    onClick={() => {
+                        const geneInput = document.getElementById("gene-input") as HTMLInputElement
+                        const phenotypeInput = document.getElementById("phenotype-input") as HTMLInputElement
+                        const gene = geneInput.value.trim()
+                        const phenotype = phenotypeInput.value.trim()
+                        
+                        if (gene && phenotype) {
+                            const current = formData.genetic_markers || []
+                            if (!current.some(g => g.gene.toLowerCase() === gene.toLowerCase())) {
+                                setFormData({
+                                    ...formData,
+                                    genetic_markers: [...current, { id: Date.now(), gene, phenotype, source: "Manual" }]
+                                })
+                            }
+                            geneInput.value = ""
+                            phenotypeInput.value = ""
+                        }
+                    }}
+                >
+                    Add
+                </Button>
+            </div>
+            
+            <div className="flex flex-wrap gap-2 min-h-[40px] p-2 bg-slate-50 rounded-md border border-slate-100">
+                {formData.genetic_markers && formData.genetic_markers.length > 0 ? (
+                    formData.genetic_markers.map((marker, i) => (
+                        <span key={i} className="inline-flex items-center px-2 py-1 rounded text-sm font-medium bg-purple-100 text-purple-800 border border-purple-200">
+                            <span className="font-bold mr-1">{marker.gene}:</span> {marker.phenotype}
+                            <button 
+                                onClick={() => {
+                                    const newList = formData.genetic_markers?.filter((_, idx) => idx !== i)
+                                    setFormData({...formData, genetic_markers: newList})
+                                }}
+                                className="ml-1.5 hover:bg-purple-200 rounded-full p-0.5"
+                            >
+                                <X className="h-3 w-3" />
+                            </button>
+                        </span>
+                    ))
+                ) : (
+                    <span className="text-sm text-slate-400 italic">No genetic markers tracked.</span>
+                )}
+            </div>
+        </div>
+        
+        {/* Extracted Lab Results view in Edit Mode */}
+        {formData.lab_results && formData.lab_results.length > 0 && (
+            <div className="space-y-3 pt-4 border-t border-slate-100">
+                <Label className="flex items-center gap-2 text-blue-700">
+                    <Activity className="h-4 w-4" /> Current Lab Results
+                </Label>
+                <div className="flex flex-col gap-4 max-h-64 overflow-y-auto pr-1">
+                    {Object.entries(
+                        formData.lab_results.reduce((acc: Record<string, any[]>, lab: any) => {
+                            const date = lab.collected_at ? new Date(lab.collected_at).toLocaleDateString() : 'Unknown Date';
+                            if (!acc[date]) acc[date] = [];
+                            acc[date].push(lab);
+                            return acc;
+                        }, {})
+                    ).map(([date, labs]: [string, any]) => (
+                        <div key={date} className="space-y-2">
+                            <h4 className="text-xs font-semibold text-slate-500 bg-slate-100 px-2 py-1 rounded">{date}</h4>
+                            <div className="flex flex-col gap-2">
+                                {labs.map((lab: any, i: number) => (
+                                    <div key={i} className="text-xs bg-slate-50 border p-2 rounded flex justify-between items-center group">
+                                        <div className="flex flex-col">
+                                            <span className="font-medium text-slate-700">{lab.test_name}</span>
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                            <div className="text-right">
+                                                <span className={cn(
+                                                    "font-mono font-semibold",
+                                                    lab.is_abnormal ? "text-red-600" : "text-slate-600"
+                                                )}>
+                                                    {lab.value} {lab.unit}
+                                                </span>
+                                                <div className="text-[10px] text-slate-400">Range: {lab.reference_range}</div>
+                                            </div>
+                                            {formData.id && lab.id && (
+                                                <button
+                                                    type="button"
+                                                    onClick={async () => {
+                                                        try {
+                                                            await deleteLabResult(formData.id!, lab.id!)
+                                                            setFormData((prev: any) => ({
+                                                                ...prev,
+                                                                lab_results: prev.lab_results?.filter((l: any) => l.id !== lab.id)
+                                                            }))
+                                                            toast.success("Lab result removed")
+                                                        } catch (e) {
+                                                            toast.error("Failed to delete lab result")
+                                                        }
+                                                    }}
+                                                    className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-600 transition-opacity p-1 hover:bg-red-50 rounded"
+                                                    title="Delete result"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         )}
+
+        {/* Labs Scanner - Now fully available for new patients */}
+        <div className="space-y-3 pt-4 border-t border-slate-100">
+            <Label className="flex items-center gap-2 text-blue-700"><Activity className="h-4 w-4" /> Lab Results Scanner</Label>
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
+                <input type="file" id="lab-image" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+                <Button 
+                    size="sm" 
+                    variant="secondary" 
+                    className="w-full sm:w-auto bg-white shrink-0"
+                    disabled={isScanningLab || (!formData.id && !formData.name && !formData.medical_record_number)}
+                    onClick={async () => {
+                        const input = document.getElementById("lab-image") as HTMLInputElement
+                        const file = input.files?.[0]
+                        if (!file) return toast.error("Select an image first")
+                        
+                        setIsScanningLab(true)
+                        toast.info("Scanning lab report...")
+                        try {
+                            let patientId = formData.id
+                            
+                            // 1. Auto-save the patient first if they don't exist yet
+                            if (!patientId) {
+                                if (!formData.name) {
+                                    toast.warning("Please enter at least a patient name before uploading labs.")
+                                    setIsScanningLab(false)
+                                    return
+                                }
+                                const payload = {
+                                    name: formData.name,
+                                    date_of_birth: formData.date_of_birth,
+                                    medical_record_number: formData.medical_record_number,
+                                    weight: formData.weight,
+                                    height: formData.height,
+                                    egfr: formData.egfr ? Number(formData.egfr) : undefined,
+                                    is_pregnant: formData.is_pregnant || false,
+                                    is_nursing: formData.is_nursing || false,
+                                    allergies: formData.allergies?.map(a => ({
+                                        allergen: a.allergen,
+                                        allergy_type: "drug",
+                                        severity: "unknown"
+                                    })),
+                                    genetic_markers: formData.genetic_markers
+                                }
+                                const newPatient = await createPatient(payload)
+                                patientId = newPatient.id
+                                setFormData(newPatient) // Update local state with the new ID
+                            }
+
+                            // 2. Now run the scan
+                            const newLabs = await scanLabResults(patientId!, file)
+                            setFormData(prev => ({
+                                ...prev,
+                                lab_results: [...(prev.lab_results || []), ...newLabs]
+                            }))
+                            toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
+                            input.value = ''
+                        } catch (e) {
+                            console.error(e)
+                            toast.error("Failed to scan labs or save patient profile.")
+                        } finally {
+                            setIsScanningLab(false)
+                        }
+                    }}
+                >
+                    {isScanningLab ? "Scanning..." : <><Camera className="h-4 w-4 mr-2" /> Scan Report</>}
+                </Button>
+            </div>
+            {!formData.id && (
+                <p className="text-xs text-blue-600/70 italic px-1">Scanning will automatically save this new profile.</p>
+            )}
+        </div>
         </div>
 
         <div className="flex justify-end pt-4 mt-4 border-t">

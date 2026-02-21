@@ -135,12 +135,12 @@ export function SafetyHUD() {
             </div>
 
             {/* SIDEBAR PROFILE (1 Col) */}
-            <div className="lg:col-span-1 h-full overflow-y-auto">
+            <div className="lg:col-span-1 h-full overflow-y-auto pb-4">
                 <PatientForm 
                     key={patient ? patient.id : 'new'} 
                     initialPatient={patient} 
                     onSave={setPatient} 
-                    className="h-full" 
+                    className="min-h-full" 
                 />
             </div>
         </div>

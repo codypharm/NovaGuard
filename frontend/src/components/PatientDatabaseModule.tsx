@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react"
 import { useSessionContext } from "@/context/SessionContext"
-import { getPatients, type Patient } from "@/services/api"
+import { getPatients, scanLabResults, type Patient } from "@/services/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, UserPlus, Stethoscope, FileText, User, Loader2 } from "lucide-react"
+import { Search, Stethoscope, User, Loader2, Camera } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
 
 export default function PatientDatabaseModule() {
   const { createNewSession, setActiveModule } = useSessionContext()
@@ -15,6 +16,7 @@ export default function PatientDatabaseModule() {
   const [startingPatientId, setStartingPatientId] = useState<number | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
+  const [isScanningLab, setIsScanningLab] = useState(false)
 
   useEffect(() => {
     loadPatients()
@@ -105,10 +107,61 @@ export default function PatientDatabaseModule() {
                                         </>
                                     )}
                                 </Button>
-                              <Button variant="outline" className="w-full">
-                                  <FileText className="mr-2 h-4 w-4" />
-                                  View History
-                              </Button>
+
+                          </CardContent>
+                      </Card>
+
+                      <Card>
+                          <CardHeader>
+                              <CardTitle className="flex items-center gap-2 text-lg">
+                                  <Camera className="h-5 w-5 text-blue-600" />
+                                  Upload Lab Report
+                              </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                              <div className="flex flex-col gap-3">
+                                  <input 
+                                      type="file" 
+                                      id="lab-image-db" 
+                                      accept="image/*" 
+                                      className="text-xs file:mr-3 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" 
+                                  />
+                                  <Button 
+                                      className="w-full bg-blue-600 hover:bg-blue-700" 
+                                      disabled={isScanningLab}
+                                      onClick={async () => {
+                                          const input = document.getElementById("lab-image-db") as HTMLInputElement
+                                          const file = input.files?.[0]
+                                          if (!file) return toast.error("Select an image first")
+                                          
+                                          setIsScanningLab(true)
+                                          toast.info("Scanning lab report...")
+                                          try {
+                                              const newLabs = await scanLabResults(selectedPatient.id, file)
+                                              toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
+                                              input.value = ''
+                                              // Update local state so it appears immediately
+                                              setSelectedPatient({
+                                                  ...selectedPatient,
+                                                  lab_results: [...(selectedPatient.lab_results || []), ...newLabs]
+                                              })
+                                              // Refresh list silently
+                                              const data = await getPatients()
+                                              setPatients(data)
+                                          } catch (e) {
+                                              toast.error("Failed to scan labs")
+                                          } finally {
+                                              setIsScanningLab(false)
+                                          }
+                                      }}
+                                  >
+                                      {isScanningLab ? (
+                                          <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Scanning...</>
+                                      ) : (
+                                          <><Camera className="mr-2 h-4 w-4" /> Scan Report</>
+                                      )}
+                                  </Button>
+                              </div>
                           </CardContent>
                       </Card>
 
@@ -208,10 +261,7 @@ export default function PatientDatabaseModule() {
           <h1 className="text-3xl font-bold tracking-tight text-slate-900">Patient Database</h1>
           <p className="text-slate-500 mt-1">Manage patient profiles and history.</p>
         </div>
-        <Button className="bg-teal-600 hover:bg-teal-700">
-            <UserPlus className="mr-2 h-4 w-4" />
-            Add New Patient
-        </Button>
+
       </div>
 
       <div className="mb-6 relative">
@@ -265,9 +315,14 @@ export default function PatientDatabaseModule() {
                                   {patient.date_of_birth ? formatDate(patient.date_of_birth) : "—"}
                               </TableCell>
                               <TableCell>
-                                  <div className="flex gap-1">
-                                    {patient.is_pregnant && <Badge variant="secondary" className="bg-rose-100 text-rose-700 text-[10px] h-5">Pregnant</Badge>}
-                                    {patient.allergies && patient.allergies.length > 0 && <Badge variant="outline" className="text-[10px] h-5">{patient.allergies.length} Allergies</Badge>}
+                                  <div className="flex flex-wrap gap-1">
+                                    {patient.is_pregnant && <Badge variant="secondary" className="bg-rose-100 text-rose-700 text-[10px] h-5 px-1.5">Pregnant</Badge>}
+                                    {patient.is_nursing && <Badge variant="secondary" className="bg-amber-100 text-amber-700 text-[10px] h-5 px-1.5">Nursing</Badge>}
+                                    {patient.allergies && patient.allergies.length > 0 && <Badge variant="outline" className="text-[10px] h-5 px-1.5 border-rose-200 text-rose-700">{patient.allergies.length} Allergies</Badge>}
+                                    {patient.genetic_markers && patient.genetic_markers.length > 0 && <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-[10px] h-5 px-1.5">PGx</Badge>}
+                                    {(!patient.is_pregnant && !patient.is_nursing && (!patient.allergies || patient.allergies.length === 0) && (!patient.genetic_markers || patient.genetic_markers.length === 0)) && (
+                                        <Badge variant="secondary" className="bg-slate-100 text-slate-500 text-[10px] h-5 px-1.5 font-normal">Active</Badge>
+                                    )}
                                   </div>
                               </TableCell>
                               <TableCell className="text-right">

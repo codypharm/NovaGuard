@@ -117,27 +117,17 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         
         try {
             console.log("📡 API: Calling apiCreateSession", newId, patientId)
-            await apiCreateSession(newId, patientId)
+            const newSession = await apiCreateSession(newId, patientId)
+            
+            // Immediately prepend to local state so SafetyHUD has the patient loaded BEFORE the route switches
+            setSessionsHistory(prev => [newSession, ...prev])
             
             // Switch session first to ensure UI feels responsive
             switchSession(newId)
             
-            // Wait slightly before refreshing to ensure DB consistency
-            // (Postgres commit latency might be >0ms if under load)
-            // await new Promise(r => setTimeout(r, 100))
+            // Fetch updated list from server in the background
+            refreshSessions()
             
-            // Fetch updated list from server
-            const updatedSessions = await refreshSessions()
-            
-            // Verify if the session was actually added (server-side consistency)
-            if (!updatedSessions.some(s => s.id === newId)) {
-                console.warn("⚠️ Session created but not returned by list API yet")
-                // Manually append only if server didn't return it yet (rare race)
-                setSessionsHistory(prev => [
-                    { id: newId, title: "New Session", updated_at: new Date().toISOString() }, 
-                    ...prev
-                ])
-            }
         } catch (err) {
             console.error("Failed to create session on server", err)
         } finally {

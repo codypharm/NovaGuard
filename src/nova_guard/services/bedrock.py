@@ -27,9 +27,25 @@ class BedrockClient:
         if not text: return "{}"
         clean = text.strip()
         if "```" in clean:
-            # Find the first { and last }
-            start = clean.find("{")
-            end = clean.rfind("}")
+            # Find the first JSON-like character
+            start_obj = clean.find("{")
+            start_arr = clean.find("[")
+            
+            # Determine which starts first (if either exists)
+            start = -1
+            if start_obj != -1 and start_arr != -1:
+                start = min(start_obj, start_arr)
+            else:
+                start = max(start_obj, start_arr)
+                
+            # Find the corresponding end character
+            end = -1
+            if start != -1:
+                if clean[start] == "{":
+                    end = clean.rfind("}")
+                else:
+                    end = clean.rfind("]")
+                    
             if start != -1 and end != -1:
                 return clean[start:end+1]
         return clean
@@ -385,17 +401,22 @@ class BedrockClient:
                 temperature=0.0
             )
             
-            content = self._clean_json(response.choices[0].message.content)
+            
+            raw_content = response.choices[0].message.content
+            logger.info(f"Raw Vision API Response: {raw_content}")
+            
+            content = self._clean_json(raw_content)
             parsed = json.loads(content)
             if isinstance(parsed, dict) and len(parsed.keys()) == 1:
                 parsed = list(parsed.values())[0]
             
             if isinstance(parsed, list):
                 return parsed
+            logger.warning(f"Parsed response is not a list: {type(parsed)}")
             return []
             
         except Exception as e:
-            logger.error("Lab image processing failed: %s", e)
+            logger.error(f"Lab image processing failed: {str(e)}", exc_info=True)
             return []
     async def get_ai_safety_flags(self, drug_name: str, patient_profile: dict) -> List[Any]:
         """
