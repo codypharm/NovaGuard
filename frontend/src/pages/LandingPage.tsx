@@ -20,9 +20,9 @@ export default function LandingPage() {
                 </div>
                 
                 <div className="hidden md:flex items-center gap-10 text-sm font-bold text-slate-500 uppercase tracking-widest">
-                    <a href="#" className="hover:text-teal-600 transition-colors">Safety Matrix</a>
-                    <a href="#" className="hover:text-teal-600 transition-colors">OpenFDA & DailyMed</a>
-                    <a href="#" className="hover:text-teal-600 transition-colors">RxNorm Integration</a>
+                    <a href="#workflow" className="hover:text-teal-600 transition-colors">Safety Matrix</a>
+                    <a href="#solutions" className="hover:text-teal-600 transition-colors">OpenFDA & DailyMed</a>
+                    <a href="#solutions" className="hover:text-teal-600 transition-colors">RxNorm Integration</a>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -77,6 +77,9 @@ export default function LandingPage() {
                             <Button 
                                 variant="ghost" 
                                 size="lg"
+                                onClick={() => {
+                                    document.getElementById('workflow')?.scrollIntoView({ behavior: 'smooth' });
+                                }}
                                 className="h-16 px-10 text-slate-500 font-bold rounded-2xl text-lg hover:bg-slate-50 underline decoration-slate-200 underline-offset-8"
                             >
                                 Compare to Legacy Systems
@@ -137,7 +140,11 @@ export default function LandingPage() {
                                 </div>
                                 <div className="text-center">
                                     <div className="text-lg font-clinical font-bold text-slate-900 mb-1">Drug Ops Module</div>
-                                    <div className="text-xs text-slate-400 font-bold uppercase tracking-widest underline decoration-teal-500 decoration-2 underline-offset-4 cursor-pointer">Explore Analysis</div>
+                                    <div 
+                                        onClick={() => {
+                                            document.getElementById('solutions')?.scrollIntoView({ behavior: 'smooth' });
+                                        }}
+                                        className="text-xs text-slate-400 font-bold uppercase tracking-widest underline decoration-teal-500 decoration-2 underline-offset-4 cursor-pointer">Explore Analysis</div>
                                 </div>
                                 
                                 {/* Background Aura */}
@@ -149,12 +156,12 @@ export default function LandingPage() {
             </section>
 
             {/* WORKFLOW ANIMATION SECTION */}
-            <section className="bg-white border-y border-slate-100">
+            <section id="workflow" className="bg-white border-y border-slate-100 scroll-m-20">
                 <WorkflowAnimation />
             </section>
 
             {/* QUICK SOLUTIONS SECTION (White Grid) */}
-            <section className="bg-slate-50/50 py-32 px-6 lg:px-12 border-y border-slate-100">
+            <section id="solutions" className="bg-slate-50/50 py-32 px-6 lg:px-12 border-y border-slate-100 scroll-m-20">
                 <div className="mx-auto max-w-7xl">
                     <div className="text-center mb-20">
                         <h2 className="text-4xl sm:text-5xl font-clinical font-black text-slate-900 mb-6">
