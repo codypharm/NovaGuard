@@ -21,8 +21,8 @@ export default function LandingPage() {
                 
                 <div className="hidden md:flex items-center gap-10 text-sm font-bold text-slate-500 uppercase tracking-widest">
                     <a href="#" className="hover:text-teal-600 transition-colors">Safety Matrix</a>
-                    <a href="#" className="hover:text-teal-600 transition-colors">OpenFDA API</a>
-                    <a href="#" className="hover:text-teal-600 transition-colors">Protocols</a>
+                    <a href="#" className="hover:text-teal-600 transition-colors">OpenFDA & DailyMed</a>
+                    <a href="#" className="hover:text-teal-600 transition-colors">RxNorm Integration</a>
                 </div>
 
                 <div className="flex items-center gap-4">
