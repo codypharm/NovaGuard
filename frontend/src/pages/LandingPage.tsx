@@ -161,24 +161,24 @@ export default function LandingPage() {
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
                         <div className="med-card p-10 flex flex-col items-center text-center">
                             <div className="h-16 w-16 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mb-8 border border-teal-100">
-                                <Database className="w-8 h-8" />
+                                <Activity className="w-8 h-8" />
                             </div>
-                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">Interaction Sandbox</h3>
+                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">Pharmacogenomics (PGx)</h3>
                             <p className="text-slate-500 leading-relaxed mb-8">
-                                Analyze drug-drug patterns with surgical visibility. Simulated against actual OpenFDA safety protocols.
+                                Cross-reference new prescriptions against patient CYP450 genetic markers to prevent critical rapid/poor metabolizer events.
                             </p>
                             <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
-                                View Capabilities
+                                View PGx Matrix
                             </Button>
                         </div>
 
                         <div className="med-card p-10 flex flex-col items-center text-center">
                             <div className="h-16 w-16 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mb-8 border border-teal-100">
-                                <Zap className="w-8 h-8" />
+                                <Database className="w-8 h-8" />
                             </div>
-                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">Renal Math Engine</h3>
+                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">Longitudinal Safety Audit</h3>
                             <p className="text-slate-500 leading-relaxed mb-8">
-                                Automate complex weight-adjusted dosing calculations (IBW/AdjBW) with zero mathematical variance.
+                                "Time Travel" analysis detects hidden cross-reactivities from historically discontinued drugs and new allergies.
                             </p>
                             <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
                                 Examine Methodology
@@ -187,14 +187,14 @@ export default function LandingPage() {
 
                         <div className="med-card p-10 flex flex-col items-center text-center">
                             <div className="h-16 w-16 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mb-8 border border-teal-100">
-                                <Activity className="w-8 h-8" />
+                                <Zap className="w-8 h-8" />
                             </div>
-                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">AI Counseling</h3>
+                            <h3 className="text-2xl font-clinical font-bold text-slate-900 mb-4">Multimodal Lab Ingestion</h3>
                             <p className="text-slate-500 leading-relaxed mb-8">
-                                Dynamic, context-aware patient guidance cards generated specifically for your current clinical session.
+                                Instantly extract complex biomarkers (eGFR, Liver Enzymes) from photographed lab reports using Amazon Nova Vision.
                             </p>
                             <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
-                                Preview Content
+                                Test Vision API
                             </Button>
                         </div>
                     </div>
