@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { User, AlertTriangle, Edit2, Search, X, Check, Activity, Dna, Camera, Trash2, ChevronDown, ChevronRight } from "lucide-react"
+import { User, AlertTriangle, Edit2, Search, X, Check, Activity, Dna, Camera, Trash2, ChevronDown, ChevronRight, Pill } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
@@ -34,6 +34,11 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
 
   const toggleLabDate = (date: string) => {
       setExpandedLabDates(prev => ({...prev, [date]: !prev[date]}))
+  }
+
+  const [expandedDrugDates, setExpandedDrugDates] = useState<Record<string, boolean>>({})
+  const toggleDrugDate = (date: string) => {
+      setExpandedDrugDates(prev => ({...prev, [date]: !prev[date]}))
   }
 
   useEffect(() => {
@@ -175,6 +180,59 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                         ))
                     ) : (
                         <span className="text-sm text-slate-400 italic">No genetic markers tracked</span>
+                    )}
+                </div>
+
+                {/* MEDICAL HISTORY (DRUGS) VIEW */}
+                <div className="flex items-center gap-2 mt-5 mb-2">
+                    <Pill className="h-4 w-4 text-emerald-500" />
+                    <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Medical History</span>
+                </div>
+                <div className="flex flex-col gap-3">
+                    {initialPatient.drug_history && initialPatient.drug_history.length > 0 ? (
+                        Object.entries(
+                            initialPatient.drug_history.reduce((acc: Record<string, any[]>, drug: any) => {
+                                const date = drug.start_date ? new Date(drug.start_date).toLocaleDateString() : 'Unknown Date';
+                                if (!acc[date]) acc[date] = [];
+                                acc[date].push(drug);
+                                return acc;
+                            }, {})
+                        ).sort((a, b) => {
+                            if (a[0] === 'Unknown Date') return 1;
+                            if (b[0] === 'Unknown Date') return -1;
+                            return new Date(b[0]).getTime() - new Date(a[0]).getTime();
+                        }).map(([date, drugs]: [string, any]) => (
+                            <div key={date} className="bg-white border rounded shadow-sm overflow-hidden">
+                                <button 
+                                    onClick={() => toggleDrugDate(date)}
+                                    className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                >
+                                    <span className="text-xs font-semibold text-slate-700">{date} ({drugs.length} drugs)</span>
+                                    {expandedDrugDates[date] ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                                </button>
+                                {expandedDrugDates[date] && (
+                                    <div className="p-2 flex flex-col gap-1 border-t">
+                                        {drugs.map((drug: any, i: number) => (
+                                            <div key={i} className="text-xs bg-slate-50/50 p-1.5 rounded flex justify-between items-center">
+                                                <div className="flex flex-col">
+                                                    <span className="font-medium text-slate-700">{drug.drug_name}</span>
+                                                    {(drug.dose || drug.frequency) && (
+                                                        <span className="text-[10px] text-slate-500">{drug.dose !== 'Unknown' ? drug.dose : ''} {drug.dose !== 'Unknown' && drug.frequency !== 'Unknown' ? '•' : ''} {drug.frequency !== 'Unknown' ? drug.frequency : ''}</span>
+                                                    )}
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className={drug.is_active ? "text-emerald-600 font-semibold" : "text-slate-400 font-semibold"}>
+                                                        {drug.is_active ? "Active" : "Discontinued"}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        ))
+                    ) : (
+                        <span className="text-sm text-slate-400 italic">No drug history recorded</span>
                     )}
                 </div>
 

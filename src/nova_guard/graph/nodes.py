@@ -49,7 +49,7 @@ async def gateway_supervisor_node(state: PatientState) -> dict:
     )
 
     intent = raw_intent.strip().upper()
-
+    
     # More robust mapping (handles model hallucinations better)
     intent_map = {
         "AUDIT": "AUDIT",
@@ -84,29 +84,31 @@ async def image_intake_node(state: PatientState) -> dict:
     """
     from nova_guard.services.bedrock import bedrock_client
     
-    logger.info("Image intake: processing prescription via Nova Lite")
+    logger.info("Image intake: processing prescription via Nova")
     image_bytes = state.get("prescription_image")
     
     if not image_bytes:
         logger.error("No image provided for image intake")
         return {}
         
-    extracted = await bedrock_client.process_image(image_bytes)
+    extracted_prescriptions = await bedrock_client.process_image(image_bytes)
     
-    if not extracted:
+    if not extracted_prescriptions:
         # Safety: Do not fall back to mock data in production/test.
         logger.error("Bedrock image processing failed - returning error state")
         return {
             "extracted_data": None,
+            "prescriptions": [],
             "input_type": "image",
             "messages": [AIMessage(content="⚠️ Image analysis failed or no text found. Please try again or type the prescription manually.")]
         }
         
     return {
-        "extracted_data": extracted,
+        "prescriptions": extracted_prescriptions,
+        "extracted_data": extracted_prescriptions[0] if extracted_prescriptions else None,
         "input_type": "image",
         # "confidence_score": 0.95, # Nova Lite doesn't give a score easily, assume high if success
-        # "messages": ["✅ Image analysis complete (Nova Lite)"]
+        # "messages": ["✅ Image analysis complete (Nova)"]
     }
 
 async def text_intake_node(state: PatientState) -> dict:
@@ -251,9 +253,13 @@ async def text_intake_node(state: PatientState) -> dict:
 def route_input(state: PatientState) -> str:
     intent = state.get("intent")
     
-    # Path for New Prescription / Image
+    # Always process the image if one is provided
+    if state.get("prescription_image"):
+        return "image_intake"
+        
+    # Path for New Prescription / Text
     if intent == "AUDIT":
-        return "image_intake" if state.get("prescription_image") else "text_intake"
+        return "text_intake"
     
     # Path for Actions (The new Tools Node)
     if intent == "SYSTEM_ACTION":

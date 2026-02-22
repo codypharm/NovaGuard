@@ -523,7 +523,10 @@ async def process_clinical_interaction(
         # Check for AI failure message
         is_failure = False
         content = get_msg_content(last_msg) if last_msg else ""
-        if content and content == "I'm sorry, I'm having trouble processing that clinical question right now.":
+        if content and (
+            content == "I'm sorry, I'm having trouble processing that clinical question right now." or
+            "**System Notice**" in content
+        ):
             is_failure = True
 
         return {
@@ -702,6 +705,7 @@ async def stream_clinical_interaction(
                     "verdict": _serialize(result.get("verdict")),
                     "assistant_response": get_msg_content(last_msg) if last_msg else None,
                     "safety_flags": [_serialize(f) for f in result.get("safety_flags", [])],
+                    "prescriptions": [_serialize(p) for p in result.get("prescriptions", [])]
                 }
                 yield f"data: {_json.dumps(final, default=str)}\n\n"
             else:

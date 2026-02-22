@@ -6,8 +6,104 @@ import { cn } from "@/lib/utils"
 import { type Verdict } from './SafetyAnalysis'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getSessionHistory, transcribeAudio, playTTS, downloadReport } from '@/services/api'
+import { getSessionHistory, transcribeAudio, playTTS, downloadReport, saveDrugHistory, getPatientById } from '@/services/api'
 import { useAudioRecorder } from "../hooks/useAudioRecorder"
+import { toast } from "sonner"
+
+// --- Extracted Verdict Bubble Component ---
+function VerdictBubble({ verdict, sessionId, patientId, prescriptions, onPatientUpdate }: any) {
+    const [isSaving, setIsSaving] = useState(false);
+    const [saved, setSaved] = useState(false);
+
+    const handleSaveAndDispense = async () => {
+        if (!patientId || !prescriptions || prescriptions.length === 0) return;
+        setIsSaving(true);
+        try {
+            const promises = prescriptions.map((p: any) => saveDrugHistory(patientId, {
+                drug_name: p.drug_name,
+                dose: p.dose || 'Unknown',
+                frequency: p.frequency || 'Unknown',
+                start_date: new Date().toISOString().split('T')[0],
+                is_active: true
+            }));
+            await Promise.all(promises);
+            toast.success("Prescriptions saved to patient history");
+            setSaved(true);
+            if (onPatientUpdate) {
+                const updated = await getPatientById(patientId);
+                onPatientUpdate(updated);
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error("Failed to save prescriptions");
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-4 min-w-[300px] md:min-w-[400px]">
+             <div className={cn(
+                "flex items-center gap-4 rounded-xl p-4 text-white shadow-sm",
+                verdict.status === "green" ? "bg-emerald-500" :
+                verdict.status === "yellow" ? "bg-amber-500" : "bg-rose-500"
+              )}>
+                <div className="flex-1 text-white">
+                  <h3 className="font-bold text-lg text-white">
+                    {verdict.status === "green" ? "SAFE TO DISPENSE" :
+                     verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
+                  </h3>
+                  <p className="text-white/90 text-sm mb-4">
+                    {verdict.status === "green" ? "Acceptable to dispense." :
+                     verdict.status === "yellow" ? "Please review the flags below before proceeding." : "Do not dispense."}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                      <button 
+                          onClick={() => downloadReport(sessionId)}
+                          className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 text-white font-medium px-3 py-1.5 rounded-full backdrop-blur-sm transition-colors w-fit"
+                      >
+                          <Download className="h-3.5 w-3.5" />
+                          Download PDF Report
+                      </button>
+                      
+                      {prescriptions && prescriptions.length > 0 && patientId && (
+                          <button 
+                              onClick={handleSaveAndDispense}
+                              disabled={isSaving || saved}
+                              className={cn("flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full backdrop-blur-sm transition-colors w-fit",
+                                  saved ? "bg-emerald-700/50 text-emerald-100 cursor-default" : "bg-white text-slate-900 hover:bg-slate-100"
+                              )}
+                          >
+                              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (saved ? <CheckCircle2 className="h-3.5 w-3.5" /> : <ShieldPlus className="h-3.5 w-3.5" />)}
+                              {isSaving ? "Saving..." : (saved ? "Dispensed & Saved" : "Save and Dispense")}
+                          </button>
+                      )}
+                  </div>
+                </div>
+             </div>
+
+             <div className="space-y-3">
+                {(verdict.flags || []).map((flag: any, i: number) => (
+                  <div key={i} className={cn(
+                    "rounded-lg border p-3 text-sm bg-white",
+                    flag.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
+                    flag.severity === "critical" ? "border-rose-200 bg-rose-50 text-rose-900" :
+                    "border-slate-200 text-slate-700"
+                  )}>
+                    <div className="flex items-start justify-between gap-2">
+                        <div>
+                            <span className="font-semibold block mb-1">{flag.message}</span>
+                            <span className="text-xs uppercase tracking-wider opacity-70">Category: {flag.category}</span>
+                        </div>
+                        <span className="text-[10px] text-slate-400 font-mono">{flag.source.toUpperCase()}</span>
+                    </div>
+                  </div>
+                ))}
+             </div>
+        </div>
+    );
+}
+
 
 
 interface Message {
@@ -20,15 +116,18 @@ interface Message {
 
 interface SafetyChatProps {
   sessionId: string
+  patientId?: number
   verdict: Verdict | null
+  prescriptions?: any[] | null
   isProcessing: boolean
   processingStep?: string | null  // Live SSE node label
   onProcess: (text: string, file: File | null) => void
   assistantResponse: string | null
   onResponseShown: () => void
+  onPatientUpdate?: (patient: any) => void
 }
 
-export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, onProcess, assistantResponse, onResponseShown }: SafetyChatProps) {
+export function SafetyChat({ sessionId, patientId, verdict, prescriptions, isProcessing, processingStep, onProcess, assistantResponse, onResponseShown, onPatientUpdate }: SafetyChatProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [input, setInput] = useState("")
@@ -200,52 +299,13 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
         id: `verdict-${Date.now()}`,
         role: 'assistant',
         timestamp: new Date(),
-        content: (
-          <div className="space-y-4 min-w-[300px] md:min-w-[400px]">
-             <div className={cn(
-                "flex items-center gap-4 rounded-xl p-4 text-white shadow-sm",
-                verdict.status === "green" ? "bg-emerald-500" :
-                verdict.status === "yellow" ? "bg-amber-500" : "bg-rose-500"
-              )}>
-                <div className="flex-1 text-white">
-                  <h3 className="font-bold text-lg text-white">
-                    {verdict.status === "green" ? "SAFE TO DISPENSE" :
-                     verdict.status === "yellow" ? "CAUTION REQUIRED" : "DO NOT DISPENSE"}
-                  </h3>
-                  <p className="text-white/90 text-sm mb-4">
-                    {verdict.status === "green" ? "Acceptable to dispense." :
-                     verdict.status === "yellow" ? "Please review the flags below before proceeding." : "Do not dispense."}
-                  </p>
-                  <button 
-                      onClick={() => downloadReport(sessionId)}
-                      className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 text-white font-medium px-3 py-1.5 rounded-full backdrop-blur-sm transition-colors w-fit"
-                  >
-                      <Download className="h-3.5 w-3.5" />
-                      Download PDF Report
-                  </button>
-                </div>
-             </div>
-
-             <div className="space-y-3">
-                {(verdict.flags || []).map((flag, i) => (
-                  <div key={i} className={cn(
-                    "rounded-lg border p-3 text-sm bg-white",
-                    flag.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
-                    flag.severity === "critical" ? "border-rose-200 bg-rose-50 text-rose-900" :
-                    "border-slate-200 text-slate-700"
-                  )}>
-                    <div className="flex items-start justify-between gap-2">
-                        <div>
-                            <span className="font-semibold block mb-1">{flag.message}</span>
-                            <span className="text-xs uppercase tracking-wider opacity-70">Category: {flag.category}</span>
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-mono">{flag.source.toUpperCase()}</span>
-                    </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-        )
+        content: <VerdictBubble 
+                   verdict={verdict} 
+                   sessionId={sessionId} 
+                   patientId={patientId} 
+                   prescriptions={prescriptions} 
+                   onPatientUpdate={onPatientUpdate} 
+                 />
       }
       setMessages(prev => [...prev, verdictMessage])
     }
@@ -306,6 +366,9 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
     setInput("")
     setAttachedFile(null)
     setPreviewUrl(null)
+    if (fileInputRef.current) {
+        fileInputRef.current.value = ""
+    }
   }
 
   useEffect(() => {
@@ -441,7 +504,11 @@ export function SafetyChat({ sessionId, verdict, isProcessing, processingStep, o
             <div className="mb-2 flex items-center gap-2 bg-slate-50 p-2 rounded-lg border w-fit">
                 {previewUrl && <img src={previewUrl} className="h-10 w-10 object-cover rounded" alt="Preview" />}
                 <span className="text-xs text-slate-600 truncate max-w-[150px]">{attachedFile.name}</span>
-                <button onClick={() => { setAttachedFile(null); setPreviewUrl(null); }} className="p-1 hover:bg-slate-200 rounded-full">
+                <button onClick={() => { 
+                    setAttachedFile(null); 
+                    setPreviewUrl(null); 
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                }} className="p-1 hover:bg-slate-200 rounded-full">
                     <X className="h-3 w-3 text-slate-500" />
                 </button>
             </div>

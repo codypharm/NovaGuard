@@ -32,6 +32,7 @@ export interface Patient {
   medical_history?: Condition[]
   lab_results?: LabResult[]
   genetic_markers?: GeneticMarker[]
+  drug_history?: any[]
 }
 
 export interface Allergy {
@@ -201,6 +202,7 @@ export interface StreamCompleteEvent {
     verdict?: ProcessResponse["verdict"]
     assistant_response?: string
     safety_flags?: any[]
+    prescriptions?: any[]
 }
 
 export interface StreamErrorEvent {
@@ -339,6 +341,13 @@ export async function getPatientByMRN(mrn: string): Promise<Patient | null> {
     return res.json()
 }
 
+export async function getPatientById(id: number): Promise<Patient> {
+    const headers = await getAuthHeaders();
+    const res = await fetch(`${API_URL}/patients/${id}`, { headers })
+    if (!res.ok) throw new Error("Failed to fetch patient")
+    return res.json()
+}
+
 export async function scanLabResults(patientId: number, file: File): Promise<LabResult[]> {
     const formData = new FormData();
     formData.append("file", file);
@@ -367,6 +376,19 @@ export async function deleteLabResult(patientId: number, labId: number): Promise
     if (!res.ok) {
         throw new Error("Failed to delete lab result");
     }
+}
+
+export async function saveDrugHistory(patientId: number, data: Omit<any, 'patient_id'>): Promise<any> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+
+    const res = await fetch(`${API_URL}/patients/${patientId}/drugs`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(data)
+    })
+    if (!res.ok) throw new Error("Failed to save drug history")
+    return res.json()
 }
 
 export interface Session {

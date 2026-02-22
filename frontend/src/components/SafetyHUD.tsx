@@ -17,6 +17,7 @@ export function SafetyHUD() {
   const [verdict, setVerdict] = useState<Verdict | null>(null)
   const [patient, setPatient] = useState<Patient | null>(null)
   const [assistantResponse, setAssistantResponse] = useState<string | null>(null)
+  const [prescriptions, setPrescriptions] = useState<any[] | null>(null)
 
   // Sync patient data when session changes
   useEffect(() => {
@@ -41,6 +42,7 @@ export function SafetyHUD() {
     setIsProcessing(true)
     setProcessingStep(null)
     setVerdict(null) 
+    setPrescriptions(null)
     
     try {
         await streamClinicalInteraction(
@@ -58,6 +60,9 @@ export function SafetyHUD() {
                     }
                     if (event.assistant_response) {
                         setAssistantResponse(event.assistant_response)
+                    }
+                    if (event.prescriptions) {
+                        setPrescriptions(event.prescriptions)
                     }
                 },
                 onError: (event) => {
@@ -125,12 +130,15 @@ export function SafetyHUD() {
             <div className="lg:col-span-3 h-full overflow-hidden">
                 <SafetyChat 
                     sessionId={sessionId}
+                    patientId={patient?.id}
                     verdict={verdict} 
+                    prescriptions={prescriptions}
                     isProcessing={isProcessing}
                     processingStep={processingStep}
                     onProcess={handleProcess} 
                     assistantResponse={assistantResponse}
                     onResponseShown={() => setAssistantResponse(null)}
+                    onPatientUpdate={setPatient}
                 />
             </div>
 

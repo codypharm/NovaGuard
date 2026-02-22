@@ -5,7 +5,7 @@ import boto3
 import os
 from typing import Optional, List, Dict, Any
 from botocore.exceptions import ClientError
-from openai import OpenAI
+from openai import AsyncOpenAI
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -65,9 +65,10 @@ class BedrockClient:
     def openai_client(self):
         if not self._openai_client and self.api_key:
             try:
-                self._openai_client = OpenAI(
+                self._openai_client = AsyncOpenAI(
                     api_key=self.api_key,
-                    base_url=self.base_url
+                    base_url=self.base_url,
+                    default_headers={"Accept-Encoding": "identity"}
                 )
             except Exception as e:
                 logger.warning("Failed to initialize OpenAI client: %s", e)
@@ -101,7 +102,7 @@ class BedrockClient:
         
         try:
             # Note: synchronous call wrapped in async method for now
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_MICRO,
                 messages=[
                     {"role": "system", "content": prompt},
@@ -145,7 +146,16 @@ class BedrockClient:
             content = getattr(msg, "content", "")
             if isinstance(content, list):
                 # Extract text from multimodal payload
-                text_parts = [p.get("text", "") for p in content if isinstance(p, dict) and "text" in p]
+                text_parts = []
+                for p in content:
+                    if isinstance(p, dict):
+                        # Handle {"type": "text", "text": "..."} format typical in LangChain multimodal
+                        if p.get("type") == "text" and "text" in p:
+                            text_parts.append(p["text"])
+                        elif "text" in p:
+                            text_parts.append(p["text"])
+                    elif isinstance(p, str):
+                        text_parts.append(p)
                 content = " ".join(text_parts)
             elif not isinstance(content, str):
                 content = str(content)
@@ -167,22 +177,22 @@ class BedrockClient:
                     messages.append({"role": "user", "content": user_query})
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO,
                 messages=messages,
                 temperature=0.2
             )
             return response.choices[0].message.content
         except Exception as e:
-            logger.error("Chat completion failed: %s", e)
-            return "I'm sorry, I'm having trouble processing that clinical question right now."
+            logger.error("Chat completion failed: %s", e, exc_info=True)
+            raise e
 
     async def chat_lite(self, system_prompt: str, user_query: str) -> str:
         """Uses Nova Lite via OpenAI API for faster/cheaper reasoning."""
         if not self.openai_client: return "Error: AI not available."
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -273,7 +283,7 @@ class BedrockClient:
             Return ONLY valid JSON, no additional text before or after."""
 
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO,
                 messages=[
                     {"role": "system", "content": system_prompt},
@@ -326,7 +336,7 @@ class BedrockClient:
         Return Markdown.
         """
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -340,7 +350,7 @@ class BedrockClient:
 
         prompt = f"Analyze drug-drug interactions for: {', '.join(drugs)}. Include CYP450 details and clinical action."
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO, # Upgraded to Pro for safety
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -355,7 +365,7 @@ class BedrockClient:
         med_list = [getattr(m, 'drug_name', str(m)) for m in medications]
         prompt = f"Provide a Safety Matrix (Pregnancy, Lactation, etc.) and Patient Counseling for: {', '.join(med_list)}."
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -369,7 +379,7 @@ class BedrockClient:
 
         prompt = f"Renal Dosing Assessment for {drug_name}. CrCl: {crcl} mL/min ({weight_info}). Provide Dosing Strategy and Rationale."
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -392,6 +402,16 @@ class BedrockClient:
              
         encoded_image = base64.b64encode(image_bytes).decode("utf-8")
         
+        mime_type = "image/jpeg"
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            mime_type = "image/png"
+        elif image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+            mime_type = "image/webp"
+        elif image_bytes.startswith(b"GIF87a") or image_bytes.startswith(b"GIF89a"):
+            mime_type = "image/gif"
+        elif b"<svg" in image_bytes[:500]:
+            mime_type = "image/svg+xml"
+        
         prompt = """
         Extract laboratory test biomarkers from this image.
         Format the output as a valid JSON array of objects.
@@ -411,7 +431,7 @@ class BedrockClient:
         """
         
         try:
-            response = self.openai_client.chat.completions.create(
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
                 messages=[
                     {
@@ -421,7 +441,7 @@ class BedrockClient:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{encoded_image}"
+                                    "url": f"data:{mime_type};base64,{encoded_image}"
                                 },
                             },
                         ],
@@ -509,12 +529,12 @@ class BedrockClient:
         """
 
         try:
-            prompt = f"Drug: {drug_name}\nPatient Profile: {profile_str}"
-            response = self.openai_client.chat.completions.create(
+            prompt_data = f"Drug: {drug_name}\nPatient Profile: {profile_str}"
+            response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_PRO,
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
+                    {"role": "user", "content": prompt_data}
                 ],
                 temperature=0.0
             )
@@ -548,7 +568,7 @@ class BedrockClient:
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)
     # ========================================================================
-    async def process_image(self, image_bytes: bytes) -> Optional[PrescriptionData]:
+    async def process_image(self, image_bytes: bytes) -> Optional[List[PrescriptionData]]:
         """
         Extract prescription data from an image using Nova Pro via the
         OpenAI-compatible endpoint (api.nova.amazon.com). Falls back to
@@ -559,23 +579,36 @@ class BedrockClient:
             return None
 
         prompt = """
-        Analyze this prescription image. Extract the following fields as JSON:
-        - drug_names  ( list of drugs e.g., "Lisinopril", "Losartan", "Amlodipine")
-        - doses ( list of doses associated with each drug in the same order as drug_names e.g., "10mg", "20mg", "5mg")
-        - frequencies ( list of frequencies associated with each drug in the same order as drug_names e.g., "daily", "twice daily", "three times daily")
-        - prescriber (optional, e.g., "Dr. Smith")
-        - date (optional, e.g., "2022-01-01")
+        Analyze this prescription image. Extract all medications.
+        Return a JSON object with a "prescriptions" key containing a list of objects.
         
+        EACH object must have these exact keys:
+        - drug_name (e.g. "Lisinopril")
+        - dose (e.g. "10mg")
+        - frequency (e.g. "daily")
+        - notes (optional, e.g. "Prescriber: Dr. Smith, Date: 2022-01-01, Refills: 6")
         
-        Return ONLY valid JSON with these exact keys.
+        Return ONLY valid JSON. Example:
+        {"prescriptions": [{"drug_name": "Lisinopril", "dose": "10mg", "frequency": "daily", "notes": ""}]}
         """
 
         try:
             encoded_image = base64.b64encode(image_bytes).decode("utf-8")
+            
+            # Sniff basic mime types to avoid rejection by Nova
+            mime_type = "image/jpeg"
+            if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+                mime_type = "image/png"
+            elif image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+                mime_type = "image/webp"
+            elif image_bytes.startswith(b"GIF87a") or image_bytes.startswith(b"GIF89a"):
+                mime_type = "image/gif"
+            elif b"<svg" in image_bytes[:500]:
+                mime_type = "image/svg+xml"
 
             # OpenAI vision format: image_url with base64 data URI
-            response = self.openai_client.chat.completions.create(
-                model=self.MODEL_LITE,
+            response = await self.openai_client.chat.completions.create(
+                model=self.MODEL_PRO,
                 messages=[
                     {
                         "role": "user",
@@ -584,7 +617,7 @@ class BedrockClient:
                             {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": f"data:image/jpeg;base64,{encoded_image}"
+                                    "url": f"data:{mime_type};base64,{encoded_image}"
                                 },
                             },
                         ],
@@ -597,7 +630,16 @@ class BedrockClient:
             json_str = self._clean_json(response_text)
             data = json.loads(json_str)
             logger.info("Image processing successful: %s", data)
-            return PrescriptionData(**data)
+            
+            prescriptions = []
+            if "prescriptions" in data:
+                for p in data["prescriptions"]:
+                    prescriptions.append(PrescriptionData(**p))
+            else:
+                # Fallback if it returns a single object instead of a 'prescriptions' dict
+                prescriptions.append(PrescriptionData(**data))
+                
+            return prescriptions
 
         except Exception as e:
             logger.error("Image processing failed: %s", e)
