@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom"
 import { useUser } from "@clerk/clerk-react"
 import { ShieldCheck, Activity, Database, Zap, ArrowRight, CheckCircle2, FlaskConical, Stethoscope } from 'lucide-react'
 import { Button } from "@/components/ui/button"
+import { WorkflowAnimation } from "@/components/WorkflowAnimation"
 
 export default function LandingPage() {
     const navigate = useNavigate()
@@ -145,6 +146,11 @@ export default function LandingPage() {
                         </div>
                     </div>
                 </div>
+            </section>
+
+            {/* WORKFLOW ANIMATION SECTION */}
+            <section className="bg-white border-y border-slate-100">
+                <WorkflowAnimation />
             </section>
 
             {/* QUICK SOLUTIONS SECTION (White Grid) */}
