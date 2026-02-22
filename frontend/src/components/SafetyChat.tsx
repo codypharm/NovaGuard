@@ -20,6 +20,7 @@ function VerdictBubble({ verdict, sessionId, patientId, prescriptions, onPatient
         setIsSaving(true);
         try {
             const promises = prescriptions.map((p: any) => saveDrugHistory(patientId, {
+                patient_id: patientId,
                 drug_name: p.drug_name,
                 dose: p.dose || 'Unknown',
                 frequency: p.frequency || 'Unknown',

@@ -410,20 +410,21 @@ async def process_tts(request: TTSRequest):
 @app.get("/sessions/{session_id}/report")
 async def get_session_report(
     session_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     from nova_guard.api.sessions import get_session
     from nova_guard.services.report_service import generate_audit_report
-    from nova_guard.graph.workflow import workflow
     from fastapi.responses import Response
 
     session = await get_session(db, session_id)
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Session not found")
         
+    workflow = request.app.state.prescription_workflow
     config = {"configurable": {"thread_id": session_id}}
-    state_snapshot = workflow.checkpointer.get_tuple(config)
+    state_snapshot = await workflow.aget_state(config)
     
     if not state_snapshot:
         raise HTTPException(status_code=404, detail="No clinical interaction history found for this session.")
