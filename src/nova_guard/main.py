@@ -289,17 +289,11 @@ async def add_lab_result(
     lab.patient_id = patient_id
     return await patient_crud.add_lab_result(db, lab)
 
-@app.post("/patients/{patient_id}/labs/scan", response_model=list[LabResultResponse])
+@app.post("/labs/scan", response_model=list[LabResultCreate])
 async def scan_lab_results(
-    patient_id: int,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
 ):
-    """Scan an image of lab results and extract biomarkers."""
-    patient = await patient_crud.get_patient(db, patient_id)
-    if not patient:
-         raise HTTPException(status_code=404, detail="Patient not found")
-         
+    """Scan an image of lab results and extract biomarkers without saving."""
     image_bytes = await file.read()
     from nova_guard.services.bedrock import BedrockClient
     bedrock = BedrockClient()
@@ -314,7 +308,6 @@ async def scan_lab_results(
             value = 0.0
             
         lab_create = LabResultCreate(
-            patient_id=patient_id,
             test_name=item.get("test_name", "Unknown"),
             value=value,
             unit=item.get("unit", ""),
@@ -322,8 +315,7 @@ async def scan_lab_results(
             is_abnormal=item.get("is_abnormal", False),
             source="vision"
         )
-        db_lab = await patient_crud.add_lab_result(db, lab_create)
-        results.append(db_lab)
+        results.append(lab_create)
         
     return results
 

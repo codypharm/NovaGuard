@@ -17,6 +17,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
   const [isEditing, setIsEditing] = useState(!initialPatient)
   const [isSaving, setIsSaving] = useState(false)
   const [isSearching, setIsSearching] = useState(false) // Added state
+  const [isDragging, setIsDragging] = useState(false)
   
   const [formData, setFormData] = useState<Partial<Patient>>({
     name: "",
@@ -98,7 +99,8 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                 gene: g.gene,
                 phenotype: g.phenotype,
                 source: g.source || "Manual"
-            }))
+            })),
+            lab_results: formData.lab_results
         }
 
         let savedPatient: Patient
@@ -121,11 +123,69 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
     }
   }
 
+  const handleDragOver = (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      setIsDragging(false)
+
+      const file = e.dataTransfer.files?.[0]
+      if (!file) return
+
+      setIsScanningLab(true)
+      toast.info("Scanning lab report from drop...")
+      try {
+          const newLabs = await scanLabResults(file)
+          toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
+          
+          if (!isEditing && initialPatient) {
+              onSave({...initialPatient, lab_results: [...(initialPatient.lab_results || []), ...newLabs]})
+          } else {
+              setFormData(prev => ({
+                  ...prev,
+                  lab_results: [...(prev.lab_results || []), ...newLabs]
+              }))
+          }
+      } catch (err) {
+          console.error(err)
+          toast.error("Failed to scan labs from drop")
+      } finally {
+          setIsScanningLab(false)
+      }
+  }
+
+  // View Mode
   if (!isEditing && initialPatient) {
-      // View Mode (Vertical Card)
-      const age = new Date().getFullYear() - new Date(initialPatient.date_of_birth).getFullYear()
+      const age = initialPatient.date_of_birth ? new Date().getFullYear() - new Date(initialPatient.date_of_birth).getFullYear() : 'N/A'
+      
       return (
-        <div className={cn("bg-white border rounded-xl p-4 shadow-sm relative group flex flex-col gap-4", className)}>
+        <div 
+            className={cn(
+                "bg-white border rounded-xl p-4 shadow-sm w-full relative group flex flex-col gap-4 transition-colors duration-200", 
+                isDragging ? "border-teal-500 border-dashed bg-teal-50/30" : "",
+                className
+            )}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {isDragging && (
+                <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-teal-50/90 rounded-xl backdrop-blur-[1px] border-2 border-teal-500 border-dashed pointer-events-none">
+                    <Activity className="h-10 w-10 text-teal-600 mb-2 animate-pulse" />
+                    <p className="text-teal-700 font-semibold text-lg">Drop lab report to scan</p>
+                </div>
+            )}
             <Button 
                 variant="ghost" 
                 size="icon" 
@@ -296,9 +356,10 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                         <Camera className="h-4 w-4 text-blue-500" />
                         <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Upload Lab Report</span>
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
-                        <input type="file" id="lab-image-view" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+                    <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-teal-50/50 p-3 rounded-md border border-teal-100">
+                        <input type="file" id="lab-image-view" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-teal-100 file:text-teal-700 hover:file:bg-teal-200" />
                         <Button 
+                            type="button"
                             size="sm" 
                             variant="secondary" 
                             className="w-full sm:w-auto bg-white shrink-0"
@@ -311,7 +372,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                                 setIsScanningLab(true)
                                 toast.info("Scanning lab report...")
                                 try {
-                                    const newLabs = await scanLabResults(initialPatient.id, file)
+                                    const newLabs = await scanLabResults(file)
                                     toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
                                     input.value = ''
                                     // Trigger parent refresh
@@ -334,7 +395,22 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
 
   // Edit Mode (Vertical Stack)
   return (
-    <div className={cn("bg-white border rounded-xl p-4 shadow-sm space-y-4", className)}>
+    <div 
+        className={cn(
+            "bg-white border rounded-xl p-4 shadow-sm space-y-4 relative transition-colors duration-200", 
+            isDragging ? "border-teal-500 border-dashed bg-teal-50/30" : "",
+            className
+        )}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+    >
+        {isDragging && (
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-teal-50/90 rounded-xl backdrop-blur-[1px] border-2 border-teal-500 border-dashed pointer-events-none">
+                <Activity className="h-10 w-10 text-teal-600 mb-2 animate-pulse" />
+                <p className="text-teal-700 font-semibold text-lg">Drop lab report to scan</p>
+            </div>
+        )}
         <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold text-slate-900 flex items-center gap-2">
                 <User className="h-4 w-4 text-teal-600" />
@@ -668,10 +744,11 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
 
         {/* Labs Scanner - Now fully available for new patients */}
         <div className="space-y-3 pt-4 border-t border-slate-100">
-            <Label className="flex items-center gap-2 text-blue-700"><Activity className="h-4 w-4" /> Lab Results Scanner</Label>
-            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-blue-50/50 p-3 rounded-md border border-blue-100">
-                <input type="file" id="lab-image" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200" />
+            <Label className="flex items-center gap-2 text-teal-700"><Activity className="h-4 w-4" /> Lab Results Scanner</Label>
+            <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center bg-teal-50/50 p-3 rounded-md border border-teal-100">
+                <input type="file" id="lab-image" accept="image/*" className="w-full text-xs flex-1 file:mr-3 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-teal-100 file:text-teal-700 hover:file:bg-teal-200" />
                 <Button 
+                    type="button"
                     size="sm" 
                     variant="secondary" 
                     className="w-full sm:w-auto bg-white shrink-0"
@@ -684,38 +761,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                         setIsScanningLab(true)
                         toast.info("Scanning lab report...")
                         try {
-                            let patientId = formData.id
-                            
-                            // 1. Auto-save the patient first if they don't exist yet
-                            if (!patientId) {
-                                if (!formData.name) {
-                                    toast.warning("Please enter at least a patient name before uploading labs.")
-                                    setIsScanningLab(false)
-                                    return
-                                }
-                                const payload = {
-                                    name: formData.name,
-                                    date_of_birth: formData.date_of_birth,
-                                    medical_record_number: formData.medical_record_number,
-                                    weight: formData.weight,
-                                    height: formData.height,
-                                    egfr: formData.egfr ? Number(formData.egfr) : undefined,
-                                    is_pregnant: formData.is_pregnant || false,
-                                    is_nursing: formData.is_nursing || false,
-                                    allergies: formData.allergies?.map(a => ({
-                                        allergen: a.allergen,
-                                        allergy_type: "drug",
-                                        severity: "unknown"
-                                    })),
-                                    genetic_markers: formData.genetic_markers
-                                }
-                                const newPatient = await createPatient(payload)
-                                patientId = newPatient.id
-                                setFormData(newPatient) // Update local state with the new ID
-                            }
-
-                            // 2. Now run the scan
-                            const newLabs = await scanLabResults(patientId!, file)
+                            const newLabs = await scanLabResults(file)
                             setFormData(prev => ({
                                 ...prev,
                                 lab_results: [...(prev.lab_results || []), ...newLabs]
@@ -733,9 +779,6 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     {isScanningLab ? "Scanning..." : <><Camera className="h-4 w-4 mr-2" /> Scan Report</>}
                 </Button>
             </div>
-            {!formData.id && (
-                <p className="text-xs text-blue-600/70 italic px-1">Scanning will automatically save this new profile.</p>
-            )}
         </div>
         </div>
 

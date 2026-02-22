@@ -23,6 +23,7 @@ async def create_patient(db: AsyncSession, patient: PatientCreate) -> Patient:
     
     allergies_data = patient_data.pop("allergies", None)
     markers_data = patient_data.pop("genetic_markers", None)
+    labs_data = patient_data.pop("lab_results", None)
     
     db_patient = Patient(**patient_data)
     db.add(db_patient)
@@ -40,9 +41,15 @@ async def create_patient(db: AsyncSession, patient: PatientCreate) -> Patient:
             marker['patient_id'] = db_patient.id
             db_marker = GeneticMarker(**marker)
             db.add(db_marker)
+
+    if labs_data:
+        from nova_guard.models.lab_result import LabResult
+        for lab in labs_data:
+            lab['patient_id'] = db_patient.id
+            db_lab = LabResult(**lab)
+            db.add(db_lab)
             
     await db.commit()
-    db.expire(db_patient)
     return await get_patient(db, db_patient.id)
 
 
@@ -83,12 +90,24 @@ async def update_patient(
                  db_marker = GeneticMarker(**marker)
                  db.add(db_marker)
 
+    # Handle lab_results separately if provided
+    if "lab_results" in update_data:
+        labs_data = update_data.pop("lab_results")
+        if labs_data is not None:
+             from nova_guard.models.lab_result import LabResult
+             from sqlalchemy import delete
+             await db.execute(delete(LabResult).where(LabResult.patient_id == patient_id))
+             
+             for lab in labs_data:
+                 lab['patient_id'] = patient_id
+                 db_lab = LabResult(**lab)
+                 db.add(db_lab)
+
     for key, value in update_data.items():
         setattr(db_patient, key, value)
 
     await db.flush()
     await db.commit()
-    db.expire(db_patient)
     return await get_patient(db, patient_id)
 
 

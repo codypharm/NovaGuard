@@ -173,6 +173,7 @@ class PatientCreate(PatientBase):
 
     allergies: Optional[list[AllergyCreate]] = None
     genetic_markers: Optional[list[GeneticMarkerCreate]] = None
+    lab_results: Optional[list[LabResultCreate]] = None
 
 
 class PatientResponse(PatientBase):

@@ -348,13 +348,13 @@ export async function getPatientById(id: number): Promise<Patient> {
     return res.json()
 }
 
-export async function scanLabResults(patientId: number, file: File): Promise<LabResult[]> {
+export async function scanLabResults(file: File): Promise<LabResult[]> {
     const formData = new FormData();
     formData.append("file", file);
     
     const reqHeaders: any = await getAuthHeaders();
     
-    const res = await fetch(`${API_URL}/patients/${patientId}/labs/scan`, {
+    const res = await fetch(`${API_URL}/labs/scan`, {
         method: "POST",
         headers: reqHeaders,
         body: formData
