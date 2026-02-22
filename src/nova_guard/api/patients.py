@@ -19,10 +19,30 @@ from nova_guard.schemas.patient import (
 
 async def create_patient(db: AsyncSession, patient: PatientCreate) -> Patient:
     """Create a new patient."""
-    db_patient = Patient(**patient.model_dump())
+    patient_data = patient.model_dump(exclude_unset=True)
+    
+    allergies_data = patient_data.pop("allergies", None)
+    markers_data = patient_data.pop("genetic_markers", None)
+    
+    db_patient = Patient(**patient_data)
     db.add(db_patient)
-    await db.flush()
+    await db.flush()  # To get db_patient.id
+    
+    if allergies_data:
+        for allergy in allergies_data:
+            allergy['patient_id'] = db_patient.id
+            db_allergy = AllergyRegistry(**allergy)
+            db.add(db_allergy)
+            
+    if markers_data:
+        from nova_guard.models.genetic_marker import GeneticMarker
+        for marker in markers_data:
+            marker['patient_id'] = db_patient.id
+            db_marker = GeneticMarker(**marker)
+            db.add(db_marker)
+            
     await db.commit()
+    db.expire(db_patient)
     return await get_patient(db, db_patient.id)
 
 
@@ -41,10 +61,6 @@ async def update_patient(
         allergies_data = update_data.pop("allergies")
         if allergies_data is not None:
              # Clear existing allergies for this patient
-             await db.execute(
-                 select(AllergyRegistry).where(AllergyRegistry.patient_id == patient_id)
-             )
-             # Better approach: delete all and re-add to ensure sync (handles deletions)
              from sqlalchemy import delete
              await db.execute(delete(AllergyRegistry).where(AllergyRegistry.patient_id == patient_id))
              
@@ -54,11 +70,25 @@ async def update_patient(
                  db_allergy = AllergyRegistry(**allergy)
                  db.add(db_allergy)
 
+    # Handle genetic_markers separately if provided
+    if "genetic_markers" in update_data:
+        markers_data = update_data.pop("genetic_markers")
+        if markers_data is not None:
+             from nova_guard.models.genetic_marker import GeneticMarker
+             from sqlalchemy import delete
+             await db.execute(delete(GeneticMarker).where(GeneticMarker.patient_id == patient_id))
+             
+             for marker in markers_data:
+                 marker['patient_id'] = patient_id
+                 db_marker = GeneticMarker(**marker)
+                 db.add(db_marker)
+
     for key, value in update_data.items():
         setattr(db_patient, key, value)
 
     await db.flush()
     await db.commit()
+    db.expire(db_patient)
     return await get_patient(db, patient_id)
 
 

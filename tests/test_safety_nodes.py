@@ -59,13 +59,13 @@ async def test_hipaa_deidentification(mock_session):
     mock_patient.lab_results = []
     mock_patient.genetic_markers = []
     
-    # Mock result.unique().scalar_one_or_none()
+    # Mock result.scalar_one_or_none()
     mock_result = MagicMock()
-    mock_result.unique.return_value.scalar_one_or_none.return_value = mock_patient
+    mock_result.scalar_one_or_none.return_value = mock_patient
     mock_db.execute.return_value = mock_result
     
     state = {"patient_id": 99, "prescriptions": []}
-    result = await fetch_patient_node(state, {"configurable": {}})
+    result = await fetch_patient_node(state)
     
     profile = result["patient_profile"]
     assert "Top Secret Name" not in profile["name"]

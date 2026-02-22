@@ -93,6 +93,11 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                 allergen: a.allergen,
                 allergy_type: "drug",
                 severity: "severe" // Default for now, should refine UI to capture this
+            })),
+            genetic_markers: formData.genetic_markers?.map(g => ({
+                gene: g.gene,
+                phenotype: g.phenotype,
+                source: g.source || "Manual"
             }))
         }
 
@@ -283,22 +288,7 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
                     )}
                 </div>
 
-                {/* PGX VIEW */}
-                <div className="flex items-center gap-2 mt-5 mb-2">
-                    <Dna className="h-4 w-4 text-purple-500" />
-                    <span className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Genetics (PGx)</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {initialPatient.genetic_markers && initialPatient.genetic_markers.length > 0 ? (
-                        initialPatient.genetic_markers.map((marker, i) => (
-                            <span key={i} className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-purple-50 text-purple-800 border border-purple-100">
-                                {marker.gene}: {marker.phenotype}
-                            </span>
-                        ))
-                    ) : (
-                        <span className="text-sm text-slate-400 italic">No genetic markers tracked</span>
-                    )}
-                </div>
+
 
                 {/* LAB UPLOAD (always visible in view mode) */}
                 <div className="mt-5 pt-4 border-t border-slate-100">

@@ -177,7 +177,9 @@ export default function PatientDatabaseModule() {
                                   </span>
                                   
                                   <span className="text-slate-500">Age:</span>
-                                  <span className="font-medium">{selectedPatient.age_years ? `${selectedPatient.age_years} yrs` : 'N/A'}</span>
+                                  <span className="font-medium">
+                                      {selectedPatient.date_of_birth ? `${new Date().getFullYear() - new Date(selectedPatient.date_of_birth).getFullYear()} yrs` : (selectedPatient.age_years ? `${selectedPatient.age_years} yrs` : 'N/A')}
+                                  </span>
                                   
                                   <span className="text-slate-500">Weight:</span>
                                   <span className="font-medium">{selectedPatient.weight ? `${selectedPatient.weight} kg` : 'N/A'}</span>

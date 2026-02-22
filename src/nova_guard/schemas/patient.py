@@ -27,7 +27,7 @@ class DrugHistoryBase(BaseModel):
 class DrugHistoryCreate(DrugHistoryBase):
     """Schema for creating drug history entry."""
 
-    patient_id: int
+    patient_id: Optional[int] = None
 
 
 class DrugHistoryResponse(DrugHistoryBase):
@@ -47,7 +47,7 @@ class DrugHistoryResponse(DrugHistoryBase):
 class AllergyCreate(BaseModel):
     """Schema for creating allergy entry."""
 
-    patient_id: int
+    patient_id: Optional[int] = None
     allergen: str = Field(..., min_length=1, max_length=255)
     allergy_type: AllergyType
     severity: Severity
@@ -77,7 +77,7 @@ class AllergyResponse(BaseModel):
 class AdverseReactionCreate(BaseModel):
     """Schema for creating adverse reaction entry."""
 
-    patient_id: int
+    patient_id: Optional[int] = None
     drug_name: str = Field(..., min_length=1, max_length=255)
     reaction_date: date
     severity: Severity
@@ -107,7 +107,7 @@ class AdverseReactionResponse(BaseModel):
 class LabResultCreate(BaseModel):
     """Schema for creating a lab result entry."""
 
-    patient_id: int
+    patient_id: Optional[int] = None
     test_name: str = Field(..., min_length=1, max_length=255)
     value: float
     unit: str = Field(..., min_length=1, max_length=50)
@@ -134,7 +134,7 @@ class LabResultResponse(LabResultCreate):
 class GeneticMarkerCreate(BaseModel):
     """Schema for creating a PGx marker."""
 
-    patient_id: int
+    patient_id: Optional[int] = None
     gene: str = Field(..., min_length=1, max_length=50) # e.g., CYP2D6
     phenotype: str = Field(..., min_length=1, max_length=100) # e.g., Poor Metabolizer
     source: str = "manual"
@@ -172,6 +172,7 @@ class PatientCreate(PatientBase):
     """Schema for creating a new patient."""
 
     allergies: Optional[list[AllergyCreate]] = None
+    genetic_markers: Optional[list[GeneticMarkerCreate]] = None
 
 
 class PatientResponse(PatientBase):

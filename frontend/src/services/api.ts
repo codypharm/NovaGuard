@@ -56,7 +56,7 @@ export interface LabResult {
 }
 
 export interface GeneticMarker {
-  id: number
+  id?: number
   gene: string
   phenotype: string
   source: string
