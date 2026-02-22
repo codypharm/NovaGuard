@@ -180,7 +180,11 @@ export default function LandingPage() {
                             <p className="text-slate-500 leading-relaxed mb-8">
                                 Cross-reference new prescriptions against patient CYP450 genetic markers to prevent critical rapid/poor metabolizer events.
                             </p>
-                            <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
+                            <Button 
+                                variant="ghost" 
+                                onClick={() => navigate("/workbench")}
+                                className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4"
+                            >
                                 View PGx Matrix
                             </Button>
                         </div>
@@ -193,7 +197,11 @@ export default function LandingPage() {
                             <p className="text-slate-500 leading-relaxed mb-8">
                                 "Time Travel" analysis detects hidden cross-reactivities from historically discontinued drugs and new allergies.
                             </p>
-                            <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
+                            <Button 
+                                variant="ghost" 
+                                onClick={() => navigate("/workbench")}
+                                className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4"
+                            >
                                 Examine Methodology
                             </Button>
                         </div>
@@ -206,13 +214,18 @@ export default function LandingPage() {
                             <p className="text-slate-500 leading-relaxed mb-8">
                                 Instantly extract complex biomarkers (eGFR, Liver Enzymes) from photographed lab reports using Amazon Nova Vision.
                             </p>
-                            <Button variant="ghost" className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4">
+                            <Button 
+                                variant="ghost" 
+                                onClick={() => navigate("/workbench")}
+                                className="text-teal-600 font-bold uppercase tracking-widest text-xs hover:bg-transparent hover:underline underline-offset-4"
+                            >
                                 Test Vision API
                             </Button>
                         </div>
                     </div>
                 </div>
             </section>
+
 
             {/* FINAL CTA */}
             <section className="py-32 px-6 lg:px-12 text-center bg-white">
