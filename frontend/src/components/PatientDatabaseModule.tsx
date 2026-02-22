@@ -248,6 +248,28 @@ export default function PatientDatabaseModule() {
                               )}
                           </CardContent>
                       </Card>
+
+                      <Card>
+                          <CardHeader>
+                              <CardTitle className="flex items-center gap-2">
+                                  <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
+                                  Pharmacogenomics (PGx)
+                              </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                              {selectedPatient.genetic_markers && selectedPatient.genetic_markers.length > 0 ? (
+                                  <div className="flex flex-wrap gap-2">
+                                      {selectedPatient.genetic_markers.map((marker, i) => (
+                                          <Badge key={i} variant="secondary" className="bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100">
+                                              <span className="font-bold mr-1">{marker.gene}:</span> {marker.phenotype}
+                                          </Badge>
+                                      ))}
+                                  </div>
+                              ) : (
+                                  <p className="text-slate-400 italic">No genetic markers tracked.</p>
+                              )}
+                          </CardContent>
+                      </Card>
                   </div>
               </div>
           </div>
