@@ -34,9 +34,65 @@ Our mission is to eliminate cognitive overload and medication errors through int
 
 ---
 
-## 🏗️ System Architecture & Flow
+## 🏛️ System Architecture & Workflow
 
 Nova Guard employs a sophisticated agentic workflow powered by **LangGraph** on the backend and an ultra-reactive **React/Tailwind** UI.
+
+```mermaid
+graph TD
+    classDef user fill:#0f172a,stroke:#334155,stroke-width:2px,color:#fff
+    classDef frontend fill:#0d9488,stroke:#0f766e,stroke-width:2px,color:#fff
+    classDef gateway fill:#10b981,stroke:#047857,stroke-width:2px,color:#fff
+    classDef ai fill:#f59e0b,stroke:#b45309,stroke-width:2px,color:#fff
+    classDef db fill:#8b5cf6,stroke:#5b21b6,stroke-width:2px,color:#fff
+    classDef api fill:#ec4899,stroke:#be185d,stroke-width:2px,color:#fff
+
+    User[Pharmacist / Clinician]:::user
+
+    subgraph "Frontend Layer"
+        UI[React + Tailwind CSS Workbench]:::frontend
+    end
+
+    subgraph "Backend Gateway (FastAPI)"
+        API[REST API & SSE Streams]:::gateway
+        Voice[Voice Processing / TTS]:::gateway
+    end
+
+    subgraph "AI Reasoning Engine (Amazon Nova)"
+        NovaText[Amazon Nova Text Inference]:::ai
+        NovaVision[Amazon Nova Vision Extraction]:::ai
+    end
+
+    subgraph "Clinical Orchestration (LangGraph)"
+        direction TB
+        Node1(1. Multimodal Intake / Extraction Node)
+        Node2(2. Context Enrichment Node)
+        Node3(3. Medical Knowledge Node)
+        Node4(4. Clinical Safety Matrix & Subroutines)
+        Node5(5. Generative Verdict & CoT Node)
+        
+        Node1 --> Node2 --> Node3 --> Node4 --> Node5
+    end
+
+    subgraph "Data & External Systems"
+        DB[(PostgreSQL Patient Database)]:::db
+        ExtAPI[OpenFDA / DailyMed / RxNorm]:::api
+    end
+
+    User -- "Text/Voice/Image (Labs)" --> UI
+    UI -- "HTTP/WebSockets" --> API
+    API -- "Vision Analysis" --> NovaVision
+    NovaVision -- "Structured Data" --> Node1
+    API -- "Text Query" --> Node1
+    
+    Node2 <--> DB
+    Node3 <--> ExtAPI
+    Node4 -. "Uses AI Fallback" .-> NovaText
+    Node5 <--> NovaText
+    
+    Node5 -- "Final Analysis & Verdict" --> API
+    API -- "Server-Sent Events streams" --> UI
+```
 
 ### 1. The Gateway (FastAPI & Multimodal Adapters)
 Inputs arrive via text, audio blobs, or images. The backend instantly routes these to specific Amazon Nova inference endpoints. Voice is transcribed, and images of lab results (like CMP panels showing eGFR or AST/ALT) are structured into JSON using Nova Vision.
@@ -53,6 +109,21 @@ A stateful, multi-agent graph handles the core intelligence:
 The UI subscribes to real-time event streams (SSE). As the LangGraph nodes execute, the UI dynamically updates with glowing indicators, badges, and the streaming Chain-of-Thought analysis, ensuring the pharmacist has total visibility into the AI's "thought process."
 
 ![Clinical Intake Chat Analysis](demo_data/workbench.png)
+
+---
+
+## 🔥 Features List
+
+Our core capabilities are divided into five distinct domains:
+
+1. **Multimodal Clinical Chat**: 💬 Speak, type, or upload images directly to the bot.
+2. **Amazon Nova Vision Lab Parsing**: 📷 Automatically extracts eGFR, AST/ALT, and platelets directly from printed lab report photos.
+3. **HIPAA Auto-Deidentification Node**: 🛡️ Instantly strips Private Health Information (names, identifiers) before sending data to cloud LLMs.
+4. **Pharmacogenomics (PGx) Safety Matching**: 🧬 Intercepts dangerous enzyme mismatch events (e.g. CYP2D6 Poor Metabolizer) dynamically.
+5. **Longitudinal "Time Travel" Record Alerting**: ⏱️ Analyzes medications a patient stopped months ago to catch class cross-reactivity and hidden allergies.
+6. **Polypharmacy Threshold Guardrails**: 💊 Calculates anticholinergic and sedative burden indexes to block potentially fatal cascading interactions.
+7. **Clinical Calculator Suite & Math Engine**: 🧮 Standalone tools for Cockcroft-Gault Renal Dosing, Hepatic Impairment Dose Reductions, and Pediatric formulas.
+8. **Real-time OpenFDA & DailyMed Scraping**: 📡 Feeds the latest Boxed Warnings, Label Revisions, and Recalls into the reasoning state.
 
 ---
 
