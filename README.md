@@ -52,7 +52,7 @@ A stateful, multi-agent graph handles the core intelligence:
 ### 3. The Frontend (React + Server-Sent Events)
 The UI subscribes to real-time event streams (SSE). As the LangGraph nodes execute, the UI dynamically updates with glowing indicators, badges, and the streaming Chain-of-Thought analysis, ensuring the pharmacist has total visibility into the AI's "thought process."
 
-![Clinical Intake Chat Analysis](demo_data/Screenshot%202026-02-22%20at%209.23.34%E2%80%AFAM.png)
+![Clinical Intake Chat Analysis](demo_data/workbench.png)
 
 ---
 
