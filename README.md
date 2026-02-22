@@ -154,7 +154,7 @@ Nova Guard features a built-in strict de-identification node. Before any patient
 ### Backend Setup
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/nova-guard.git
+git clone git@github.com:codypharm/NovaGuard.git
 cd nova-guard
 
 # Create a virtual environment and sync dependencies using uv
