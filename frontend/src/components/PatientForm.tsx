@@ -43,6 +43,8 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
   }
 
   useEffect(() => {
+    console.log("PatientForm useEffect initialPatient:", JSON.stringify(initialPatient, null, 2))
+    console.log("PatientForm - allergies in initialPatient:", initialPatient?.allergies)
     if (initialPatient) {
         setFormData(initialPatient)
         setIsEditing(false)
@@ -56,10 +58,10 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
       setIsSearching(true)
       try {
           const patient = await getPatientByMRN(formData.medical_record_number)
+          console.log("MRN search result:", JSON.stringify(patient, null, 2))
           if (patient) {
               setFormData({
                   ...patient,
-                  // Ensure allergies are mapped if necessary, assuming API returns correct shape
               })
               toast.success("Patient profile loaded")
           } else {
@@ -79,6 +81,8 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
     
     setIsSaving(true)
     try {
+        console.log("Saving patient - formData.allergies:", JSON.stringify(formData.allergies, null, 2))
+        
         const payload = {
             name: formData.name,
             date_of_birth: formData.date_of_birth,
@@ -88,29 +92,38 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
             egfr: formData.egfr ? Number(formData.egfr) : undefined,
             is_pregnant: formData.is_pregnant || false,
             is_nursing: formData.is_nursing || false,
-            // Send allergies for sync (additions & deletions)
             allergies: formData.allergies?.map(a => ({
-                patient_id: formData.id || 0, // Backend handles override/assignment
                 allergen: a.allergen,
                 allergy_type: "drug",
-                severity: "severe" // Default for now, should refine UI to capture this
+                severity: "severe"
             })),
             genetic_markers: formData.genetic_markers?.map(g => ({
                 gene: g.gene,
                 phenotype: g.phenotype,
                 source: g.source || "Manual"
             })),
-            lab_results: formData.lab_results
+            lab_results: formData.lab_results?.map(l => ({
+                test_name: l.test_name,
+                value: l.value,
+                unit: l.unit,
+                reference_range: l.reference_range,
+                is_abnormal: l.is_abnormal,
+                source: l.source || "vision",
+                collected_at: l.collected_at
+            })) as any
         }
+
+        console.log("Saving patient payload:", JSON.stringify(payload, null, 2))
 
         let savedPatient: Patient
         if (formData.id) {
-            // Update Existing (PUT)
             savedPatient = await updatePatient(formData.id, payload)
         } else {
-            // Create New (POST)
             savedPatient = await createPatient(payload)
         }
+
+        console.log("Saved patient response:", JSON.stringify(savedPatient, null, 2))
+        console.log("Calling onSave with:", savedPatient)
 
         setIsEditing(false)
         onSave(savedPatient)

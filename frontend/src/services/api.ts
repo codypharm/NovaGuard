@@ -378,6 +378,19 @@ export async function deleteLabResult(patientId: number, labId: number): Promise
     }
 }
 
+export async function saveLabResult(patientId: number, lab: Omit<LabResult, 'id'>): Promise<LabResult> {
+    const headers: any = await getAuthHeaders();
+    headers["Content-Type"] = "application/json";
+
+    const res = await fetch(`${API_URL}/patients/${patientId}/labs`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(lab)
+    })
+    if (!res.ok) throw new Error("Failed to save lab result")
+    return res.json()
+}
+
 export async function saveDrugHistory(patientId: number, data: Omit<any, 'patient_id'>): Promise<any> {
     const headers: any = await getAuthHeaders();
     headers["Content-Type"] = "application/json";

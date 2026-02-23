@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react"
 import { useSessionContext } from "@/context/SessionContext"
-import { getPatients, scanLabResults, type Patient } from "@/services/api"
+import { getPatients, scanLabResults, saveLabResult, type Patient } from "@/services/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search, Stethoscope, User, Loader2, Camera } from "lucide-react"
+import { Search, Stethoscope, User, Loader2, Camera, ChevronDown, ChevronRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 
@@ -17,6 +17,16 @@ export default function PatientDatabaseModule() {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [isScanningLab, setIsScanningLab] = useState(false)
+  const [expandedLabDates, setExpandedLabDates] = useState<Record<string, boolean>>({})
+
+  const toggleLabDate = (date: string) => {
+      setExpandedLabDates(prev => ({...prev, [date]: !prev[date]}))
+  }
+
+  const [expandedDrugDates, setExpandedDrugDates] = useState<Record<string, boolean>>({})
+  const toggleDrugDate = (date: string) => {
+      setExpandedDrugDates(prev => ({...prev, [date]: !prev[date]}))
+  }
 
   useEffect(() => {
     loadPatients()
@@ -137,9 +147,15 @@ export default function PatientDatabaseModule() {
                                           setIsScanningLab(true)
                                           toast.info("Scanning lab report...")
                                           try {
-                                              const newLabs = await scanLabResults(selectedPatient.id, file)
+                                              const newLabs = await scanLabResults(file)
                                               toast.success(`Successfully extracted ${newLabs.length} biomarkers!`)
                                               input.value = ''
+                                              
+                                              // Save each lab result to the patient
+                                              for (const lab of newLabs) {
+                                                  await saveLabResult(selectedPatient.id, lab)
+                                              }
+                                              
                                               // Update local state so it appears immediately
                                               setSelectedPatient({
                                                   ...selectedPatient,
@@ -229,54 +245,142 @@ export default function PatientDatabaseModule() {
                           </CardContent>
                       </Card>
 
-                      <Card>
-                          <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                  <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
-                                  Medical History
-                              </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                              {selectedPatient.medical_history && selectedPatient.medical_history.length > 0 ? (
-                                  <div className="flex flex-wrap gap-2">
-                                      {selectedPatient.medical_history.map((c, i) => (
-                                          <Badge key={i} variant="outline" className="border-amber-200 bg-amber-50 text-amber-700">
-                                              {c.condition}
-                                          </Badge>
-                                      ))}
-                                  </div>
-                              ) : (
-                                  <p className="text-slate-400 italic">No medical history recorded.</p>
-                              )}
-                          </CardContent>
-                      </Card>
+                       <Card>
+                           <CardHeader>
+                               <CardTitle className="flex items-center gap-2">
+                                   <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+                                   Drug History
+                               </CardTitle>
+                           </CardHeader>
+                           <CardContent>
+                               {selectedPatient.drug_history && selectedPatient.drug_history.length > 0 ? (
+                                   <div className="flex flex-col gap-3">
+                                       {Object.entries(
+                                           selectedPatient.drug_history.reduce((acc: Record<string, any[]>, drug: any) => {
+                                               const date = drug.start_date ? new Date(drug.start_date).toLocaleDateString() : 'Unknown Date';
+                                               if (!acc[date]) acc[date] = [];
+                                               acc[date].push(drug);
+                                               return acc;
+                                           }, {})
+                                       ).sort((a, b) => {
+                                           if (a[0] === 'Unknown Date') return 1;
+                                           if (b[0] === 'Unknown Date') return -1;
+                                           return new Date(b[0]).getTime() - new Date(a[0]).getTime();
+                                       }).map(([date, drugs]: [string, any]) => (
+                                           <div key={date} className="bg-white border rounded shadow-sm overflow-hidden">
+                                               <button 
+                                                   onClick={() => toggleDrugDate(date)}
+                                                   className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                               >
+                                                   <span className="text-xs font-semibold text-slate-700">{date} ({drugs.length} drugs)</span>
+                                                   {expandedDrugDates[date] ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                                               </button>
+                                               {expandedDrugDates[date] && (
+                                                   <div className="p-2 flex flex-col gap-1 border-t">
+                                                       {drugs.map((drug: any, i: number) => (
+                                                           <div key={i} className="text-xs bg-slate-50/50 p-1.5 rounded flex justify-between items-center">
+                                                               <div className="flex flex-col">
+                                                                   <span className="font-medium text-slate-700">{drug.drug_name}</span>
+                                                                   {(drug.dose || drug.frequency) && (
+                                                                       <span className="text-[10px] text-slate-500">{drug.dose || ''} {drug.dose && drug.frequency ? '•' : ''} {drug.frequency || ''}</span>
+                                                                   )}
+                                                               </div>
+                                                               <div className="text-right">
+                                                                   <span className={drug.is_active ? "text-emerald-600 font-semibold" : "text-slate-400 font-semibold"}>
+                                                                       {drug.is_active ? "Active" : "Discontinued"}
+                                                                   </span>
+                                                               </div>
+                                                           </div>
+                                                       ))}
+                                                   </div>
+                                               )}
+                                           </div>
+                                       ))}
+                                   </div>
+                               ) : (
+                                   <p className="text-slate-400 italic">No drug history recorded.</p>
+                               )}
+                           </CardContent>
+                       </Card>
 
                       <Card>
-                          <CardHeader>
-                              <CardTitle className="flex items-center gap-2">
-                                  <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
-                                  Pharmacogenomics (PGx)
-                              </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                              {selectedPatient.genetic_markers && selectedPatient.genetic_markers.length > 0 ? (
-                                  <div className="flex flex-wrap gap-2">
-                                      {selectedPatient.genetic_markers.map((marker, i) => (
-                                          <Badge key={i} variant="secondary" className="bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100">
-                                              <span className="font-bold mr-1">{marker.gene}:</span> {marker.phenotype}
-                                          </Badge>
-                                      ))}
-                                  </div>
-                              ) : (
-                                  <p className="text-slate-400 italic">No genetic markers tracked.</p>
-                              )}
-                          </CardContent>
-                      </Card>
-                  </div>
-              </div>
-          </div>
-      )
-  }
+                           <CardHeader>
+                               <CardTitle className="flex items-center gap-2">
+                                   <span className="inline-block w-2 h-2 rounded-full bg-purple-500" />
+                                   Pharmacogenomics (PGx)
+                               </CardTitle>
+                           </CardHeader>
+                           <CardContent>
+                               {selectedPatient.genetic_markers && selectedPatient.genetic_markers.length > 0 ? (
+                                   <div className="flex flex-wrap gap-2">
+                                       {selectedPatient.genetic_markers.map((marker, i) => (
+                                           <Badge key={i} variant="secondary" className="bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100">
+                                               <span className="font-bold mr-1">{marker.gene}:</span> {marker.phenotype}
+                                           </Badge>
+                                       ))}
+                                   </div>
+                               ) : (
+                                   <p className="text-slate-400 italic">No genetic markers tracked.</p>
+                               )}
+                           </CardContent>
+                       </Card>
+
+                       <Card>
+                           <CardHeader>
+                               <CardTitle className="flex items-center gap-2">
+                                   <span className="inline-block w-2 h-2 rounded-full bg-blue-500" />
+                                   Lab Results
+                               </CardTitle>
+                           </CardHeader>
+                           <CardContent>
+                               {selectedPatient.lab_results && selectedPatient.lab_results.length > 0 ? (
+                                   <div className="flex flex-col gap-3">
+                                       {Object.entries(
+                                           selectedPatient.lab_results.reduce((acc: Record<string, any[]>, lab: any) => {
+                                               const date = lab.collected_at ? new Date(lab.collected_at).toLocaleDateString() : 'Unknown Date';
+                                               if (!acc[date]) acc[date] = [];
+                                               acc[date].push(lab);
+                                               return acc;
+                                           }, {})
+                                       ).map(([date, labs]: [string, any]) => (
+                                           <div key={date} className="bg-white border rounded shadow-sm overflow-hidden">
+                                               <button 
+                                                   onClick={() => toggleLabDate(date)}
+                                                   className="w-full flex items-center justify-between px-3 py-2 bg-slate-50 hover:bg-slate-100 transition-colors"
+                                               >
+                                                   <span className="text-xs font-semibold text-slate-700">{date} ({labs.length} tests)</span>
+                                                   {expandedLabDates[date] ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                                               </button>
+                                               {expandedLabDates[date] && (
+                                                   <div className="p-2 flex flex-col gap-1 border-t">
+                                                       {labs.map((lab: any, i: number) => (
+                                                           <div key={i} className="text-xs bg-slate-50/50 p-1.5 rounded flex justify-between items-center">
+                                                               <div className="flex flex-col">
+                                                                   <span className="font-medium text-slate-700">{lab.test_name}</span>
+                                                               </div>
+                                                               <div className="text-right">
+                                                                   <span className={lab.is_abnormal ? "text-red-600 font-bold" : "text-emerald-600 font-semibold"}>
+                                                                       {lab.value} {lab.unit}
+                                                                   </span>
+                                                                   <div className="text-[10px] text-slate-400">Range: {lab.reference_range}</div>
+                                                               </div>
+                                                           </div>
+                                                       ))}
+                                                   </div>
+                                               )}
+                                           </div>
+                                       ))}
+                                   </div>
+                               ) : (
+                                   <p className="text-slate-400 italic">No lab results on file.</p>
+                               )}
+                           </CardContent>
+                       </Card>
+                   </div>
+               </div>
+           </div>
+       )
+   }
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
