@@ -43,8 +43,6 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
   }
 
   useEffect(() => {
-    console.log("PatientForm useEffect initialPatient:", JSON.stringify(initialPatient, null, 2))
-    console.log("PatientForm - allergies in initialPatient:", initialPatient?.allergies)
     if (initialPatient) {
         setFormData(initialPatient)
         setIsEditing(false)
@@ -58,14 +56,12 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
       setIsSearching(true)
       try {
           const patient = await getPatientByMRN(formData.medical_record_number)
-          console.log("MRN search result:", JSON.stringify(patient, null, 2))
           if (patient) {
               setFormData({
                   ...patient,
               })
               toast.success("Patient profile loaded")
           } else {
-              // Not found
               toast.error("Patient not found with that MRN")
           }
       } catch (err) {
@@ -81,8 +77,6 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
     
     setIsSaving(true)
     try {
-        console.log("Saving patient - formData.allergies:", JSON.stringify(formData.allergies, null, 2))
-        
         const payload = {
             name: formData.name,
             date_of_birth: formData.date_of_birth,
@@ -113,17 +107,12 @@ export function PatientForm({ initialPatient, onSave, className }: PatientFormPr
             })) as any
         }
 
-        console.log("Saving patient payload:", JSON.stringify(payload, null, 2))
-
         let savedPatient: Patient
         if (formData.id) {
             savedPatient = await updatePatient(formData.id, payload)
         } else {
             savedPatient = await createPatient(payload)
         }
-
-        console.log("Saved patient response:", JSON.stringify(savedPatient, null, 2))
-        console.log("Calling onSave with:", savedPatient)
 
         setIsEditing(false)
         onSave(savedPatient)

@@ -16,13 +16,13 @@ from nova_guard.services.cache import cached_research
 
 class BedrockClient:
     """Client for interacting with Amazon Nova models (via OpenAI-compatible API)."""
-    
+
     # Model IDs (Nova OpenAI-compatible)
     # Using v1 models as v2 seems restricted/unavailable for this account
-    MODEL_MICRO = "nova-micro-v1" 
+    MODEL_MICRO = "nova-micro-v1"
     MODEL_LITE = "nova-2-lite-v1"
     MODEL_PRO = "nova-pro-v1"
-    
+
     def _clean_json(self, text: str) -> str:
         """Removes markdown code blocks and ensures valid JSON string."""
         if not text: return "{}"
@@ -31,14 +31,14 @@ class BedrockClient:
             # Find the first JSON-like character
             start_obj = clean.find("{")
             start_arr = clean.find("[")
-            
+
             # Determine which starts first (if either exists)
             start = -1
             if start_obj != -1 and start_arr != -1:
                 start = min(start_obj, start_arr)
             else:
                 start = max(start_obj, start_arr)
-                
+
             # Find the corresponding end character
             end = -1
             if start != -1:
@@ -46,7 +46,7 @@ class BedrockClient:
                     end = clean.rfind("}")
                 else:
                     end = clean.rfind("]")
-                    
+
             if start != -1 and end != -1:
                 return clean[start:end+1]
         return clean
@@ -56,11 +56,11 @@ class BedrockClient:
         self.api_key = settings.nova_api_key
         self.base_url = "https://api.nova.amazon.com/v1"
         self._openai_client = None
-        
+
         # AWS Client for Vision (Legacy/Fallback)
         self.region = settings.aws_region
         self._boto3_client = None
-        
+
     @property
     def openai_client(self):
         if not self._openai_client and self.api_key:
@@ -99,7 +99,7 @@ class BedrockClient:
             return self._offline_fallback(text)
 
         input_context = f"Message: {text}\nHas Image: {has_image}"
-        
+
         try:
             # Note: synchronous call wrapped in async method for now
             response = await self.openai_client.chat.completions.create(
@@ -134,7 +134,7 @@ class BedrockClient:
         if not self.openai_client: return "Error: AI not available (check NOVA_API_KEY)."
 
         messages = [{"role": "system", "content": system_prompt}]
-        
+
         # Parse LangChain conversation history
         for msg in history:
             role = getattr(msg, "type", "")
@@ -142,7 +142,7 @@ class BedrockClient:
                 role = "user"
             elif role == "ai":
                 role = "assistant"
-                
+
             content = getattr(msg, "content", "")
             if isinstance(content, list):
                 # Extract text from multimodal payload
@@ -159,7 +159,7 @@ class BedrockClient:
                 content = " ".join(text_parts)
             elif not isinstance(content, str):
                 content = str(content)
-                
+
             if role in ["user", "assistant"] and content:
                 # Merge consecutive same-role messages to satisfy Bedrock strict alternating requirements
                 if len(messages) > 1 and messages[-1]["role"] == role:
@@ -290,7 +290,7 @@ class BedrockClient:
                     {"role": "user", "content": query}
                 ],
                 temperature=0.2,
-                
+
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -366,7 +366,7 @@ class BedrockClient:
         prompt = f"Provide a Safety Matrix (Pregnancy, Lactation, etc.) and Patient Counseling for: {', '.join(med_list)}."
         try:
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
@@ -390,18 +390,18 @@ class BedrockClient:
     # ========================================================================
     # EXISTING: Image Processing (Boto3 / Nova Lite)
     # ========================================================================
-    
+
     # ========================================================================
     # NEW: AI SAFETY FALLBACK (For non-FDA drugs)
     # ========================================================================
-    
+
     async def process_lab_image(self, image_bytes: bytes) -> List[Dict[str, Any]]:
         """Extracts structured lab results from an image using Nova Lite."""
         if not self.openai_client:
              return []
-             
+
         encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-        
+
         mime_type = "image/jpeg"
         if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
             mime_type = "image/png"
@@ -411,11 +411,11 @@ class BedrockClient:
             mime_type = "image/gif"
         elif b"<svg" in image_bytes[:500]:
             mime_type = "image/svg+xml"
-        
+
         prompt = """
         Extract laboratory test biomarkers from this image.
         Format the output as a valid JSON array of objects.
-        
+
         REQUIRED SCHEMA (List of objects):
         [
             {
@@ -426,10 +426,10 @@ class BedrockClient:
                 "is_abnormal": boolean (true if value is outside reference range)
             }
         ]
-        
+
         Return ONLY the JSON array.
         """
-        
+
         try:
             response = await self.openai_client.chat.completions.create(
                 model=self.MODEL_LITE,
@@ -449,21 +449,21 @@ class BedrockClient:
                 ],
                 temperature=0.0
             )
-            
-            
+
+
             raw_content = response.choices[0].message.content
             logger.info(f"Raw Vision API Response: {raw_content}")
-            
+
             content = self._clean_json(raw_content)
             parsed = json.loads(content)
             if isinstance(parsed, dict) and len(parsed.keys()) == 1:
                 parsed = list(parsed.values())[0]
-            
+
             if isinstance(parsed, list):
                 return parsed
             logger.warning(f"Parsed response is not a list: {type(parsed)}")
             return []
-            
+
         except Exception as e:
             logger.error(f"Lab image processing failed: {str(e)}", exc_info=True)
             return []
@@ -473,7 +473,7 @@ class BedrockClient:
         """
         from nova_guard.schemas.patient import SafetyFlag
         import json
-        
+
         if not self.openai_client:
             return []
 
@@ -486,16 +486,16 @@ class BedrockClient:
         profile_str += f"Allergies: {[a.get('allergen') for a in patient_profile.get('allergies', []) if isinstance(a, dict)]}\n"
         profile_str += f"Current Meds: {[m.get('drug') for m in patient_profile.get('active_medications', []) if isinstance(m, dict)]}\n"
         profile_str += f"Adverse Reactions: {[r.get('reaction') for r in patient_profile.get('adverse_reactions', []) if isinstance(r, dict)]}\n"
-        
+
         lab_strings = []
         for l in patient_profile.get('lab_results', []):
             if isinstance(l, dict):
                 lab_strings.append(f"{l.get('test_name')}: {l.get('value')} {l.get('unit')} (Collected: {str(l.get('collected_at'))[:10]})")
         profile_str += f"Recent Labs: {lab_strings}\n"
-        
+
         system_prompt = f"""
         SYSTEM CLOCK: Current Date is {datetime.now().strftime('%Y-%m-%d')}. Use this to determine if labs or events are historical or acute.
-        
+
         You are a highly conservative clinical safety auditor.
         The user has requested a safety check for a drug that has NO FDA LABEL (likely international or unapproved in US).
         You must use your internal pharmacological knowledge to identify critical safety issues.
@@ -509,7 +509,7 @@ class BedrockClient:
         5. Black Box Warnings (Global consensus)
 
         REQUIRED CHAIN OF THOUGHT:
-        Before outputting the JSON, you MUST show your clinical reasoning inside <clinical_analysis> tags. 
+        Before outputting the JSON, you MUST show your clinical reasoning inside <clinical_analysis> tags.
         Note the patient's organ function, any current meds, and calculate risk based on the provided Recent Labs and SYSTEM CLOCK.
 
         Return a JSON object with a list of flags:
@@ -523,7 +523,7 @@ class BedrockClient:
                 }}
             ]
         }}
-        
+
         If no major issues found, return {{"flags": []}}.
         Be conservative. If unsure, flag as warning "Insufficient Data".
         """
@@ -538,10 +538,10 @@ class BedrockClient:
                 ],
                 temperature=0.0
             )
-            
+
             content = self._clean_json(response.choices[0].message.content)
             data = json.loads(content)
-            
+
             flags = []
             for item in data.get("flags", []):
                 flags.append(SafetyFlag(
@@ -552,7 +552,7 @@ class BedrockClient:
                     citation=item.get("citation")
                 ))
             return flags
-            
+
         except Exception as e:
             logger.error("AI Safety Fallback failed: %s", e)
             return [
@@ -581,20 +581,20 @@ class BedrockClient:
         prompt = """
         Analyze this prescription image. Extract all medications.
         Return a JSON object with a "prescriptions" key containing a list of objects.
-        
+
         EACH object must have these exact keys:
         - drug_name (e.g. "Lisinopril")
         - dose (e.g. "10mg")
         - frequency (e.g. "daily")
         - notes (optional, e.g. "Prescriber: Dr. Smith, Date: 2022-01-01, Refills: 6")
-        
+
         Return ONLY valid JSON. Example:
         {"prescriptions": [{"drug_name": "Lisinopril", "dose": "10mg", "frequency": "daily", "notes": ""}]}
         """
 
         try:
             encoded_image = base64.b64encode(image_bytes).decode("utf-8")
-            
+
             # Sniff basic mime types to avoid rejection by Nova
             mime_type = "image/jpeg"
             if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
@@ -630,7 +630,7 @@ class BedrockClient:
             json_str = self._clean_json(response_text)
             data = json.loads(json_str)
             logger.info("Image processing successful: %s", data)
-            
+
             prescriptions = []
             if "prescriptions" in data:
                 for p in data["prescriptions"]:
@@ -638,7 +638,7 @@ class BedrockClient:
             else:
                 # Fallback if it returns a single object instead of a 'prescriptions' dict
                 prescriptions.append(PrescriptionData(**data))
-                
+
             return prescriptions
 
         except Exception as e:
