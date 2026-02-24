@@ -62,7 +62,7 @@ export default function LandingPage() {
                             <span className="text-teal-600">Without Compromise.</span>
                         </h1>
                         <p className="text-xl text-slate-600 leading-relaxed mb-10 max-w-xl">
-                            The Antigravity Clinical Workbench empowers pharmacists to eliminate dosing errors and automate regimen safety using Amazon Nova reasoning engine.
+                            The Nova Clinical Workbench empowers pharmacists to eliminate dosing errors and automate regimen safety using Amazon Nova reasoning engine.
                         </p>
                         
                         <div className="flex flex-col sm:flex-row gap-4 mb-12">
