@@ -116,14 +116,14 @@ The UI subscribes to real-time event streams (SSE). As the LangGraph nodes execu
 
 Our core capabilities are divided into five distinct domains:
 
-1. **Multimodal Clinical Chat**: 💬 Speak, type, or upload images directly to the bot.
-2. **Amazon Nova Vision Lab Parsing**: 📷 Automatically extracts eGFR, AST/ALT, and platelets directly from printed lab report photos.
-3. **HIPAA Auto-Deidentification Node**: 🛡️ Instantly strips Private Health Information (names, identifiers) before sending data to cloud LLMs.
-4. **Pharmacogenomics (PGx) Safety Matching**: 🧬 Intercepts dangerous enzyme mismatch events (e.g. CYP2D6 Poor Metabolizer) dynamically.
-5. **Longitudinal "Time Travel" Record Alerting**: ⏱️ Analyzes medications a patient stopped months ago to catch class cross-reactivity and hidden allergies.
-6. **Polypharmacy Threshold Guardrails**: 💊 Calculates anticholinergic and sedative burden indexes to block potentially fatal cascading interactions.
-7. **Clinical Calculator Suite & Math Engine**: 🧮 Standalone tools for Cockcroft-Gault Renal Dosing, Hepatic Impairment Dose Reductions, and Pediatric formulas.
-8. **Real-time OpenFDA & DailyMed Scraping**: 📡 Feeds the latest Boxed Warnings, Label Revisions, and Recalls into the reasoning state.
+1. **Multimodal Clinical Chat**: Speak, type, or upload images directly to the bot.
+2. **Amazon Nova Vision Lab Parsing**: Automatically extracts eGFR, AST/ALT, and platelets directly from printed lab report photos.
+3. **HIPAA Auto-Deidentification Node**: Instantly strips Private Health Information (names, identifiers) before sending data to cloud LLMs.
+4. **Pharmacogenomics (PGx) Safety Matching**: Intercepts dangerous enzyme mismatch events (e.g. CYP2D6 Poor Metabolizer) dynamically.
+5. **Longitudinal "Time Travel" Record Alerting**: Analyzes medications a patient stopped months ago to catch class cross-reactivity and hidden allergies.
+6. **Polypharmacy Threshold Guardrails**: Calculates anticholinergic and sedative burden indexes to block potentially fatal cascading interactions.
+7. **Clinical Calculator Suite & Math Engine**: Standalone tools for Cockcroft-Gault Renal Dosing, Hepatic Impairment Dose Reductions, and Pediatric formulas.
+8. **Real-time OpenFDA & DailyMed Scraping**: Feeds the latest Boxed Warnings, Label Revisions, and Recalls into the reasoning state.
 
 ---
 
