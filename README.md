@@ -8,25 +8,25 @@ Our mission is to eliminate cognitive overload and medication errors through int
 
 ![System Flow Animation](demo_data/system-flow-animation.gif)
 
-## 🎯 Core Capabilities
+##  Core Capabilities
 
 - **Intelligent Intake & Classification (Amazon Nova)**
   - Multimodal input: Type freely, speak directly using your microphone (Nova Voice), or snap/upload a picture of a lab report (Nova Vision). 
   - The system automatically classifies the intent (e.g., Clinical Query, New Prescription) and extracts structured data from chaotic inputs.
 
-- **Pharmacogenomics (PGx) Safety 🧬**
+- **Pharmacogenomics (PGx) Safety**
   - Live cross-referencing of new prescriptions against a patient's CYP450 genetic markers.
   - Automatically flags critical risks (e.g., prescribing Codeine to a CYP2D6 Poor Metabolizer) and suggests safer alternatives before dispensing.
 
-- **Longitudinal "Time Travel" Audit ⏱️**
+- **Longitudinal "Time Travel" Audit**
   - Legacy systems only check *current* active medications. Nova Guard travels through the patient's entire profile to detect hidden cross-reactivities.
   - Example: If a patient had a severe allergy to Lisinopril two years ago, the system will actively block a new prescription for Ramipril today due to class cross-reactivity.
 
-- **Polypharmacy Risk Engine 💊**
+- **Polypharmacy Risk Engine**
   - Quantifies anticholinergic and sedative burdens across the entire patient regimen.
   - Generates high-visibility alerts when total active medications exceed safety thresholds, preventing dangerous cascade prescribing.
 
-- **Drug Operations Sandbox 🧮**
+- **Drug Operations Sandbox**
   - A dedicated clinical calculator suite featuring rigorous Renal Dose Adjustment Math (Cockcroft-Gault, IBW/AdjBW logic).
   - Deep-dive Interaction Matrices and Therapeutic Substitution mapping.
 
@@ -34,7 +34,7 @@ Our mission is to eliminate cognitive overload and medication errors through int
 
 ---
 
-## 🏛️ System Architecture & Workflow
+##  System Architecture & Workflow
 
 Nova Guard employs a sophisticated agentic workflow powered by **LangGraph** on the backend and an ultra-reactive **React/Tailwind** UI.
 
@@ -112,7 +112,7 @@ The UI subscribes to real-time event streams (SSE). As the LangGraph nodes execu
 
 ---
 
-## 🔥 Features List
+##  Features List
 
 Our core capabilities are divided into five distinct domains:
 
@@ -132,7 +132,7 @@ Nova Guard features a built-in strict de-identification node. Before any patient
 
 ---
 
-## 🛠️ Technology Stack
+##  Technology Stack
 
 - **AI Reasoning & Multimodal:** Amazon Nova (Text, Vision)
 - **Agent Orchestration:** LangGraph & LangChain
@@ -143,7 +143,7 @@ Nova Guard features a built-in strict de-identification node. Before any patient
 
 ---
 
-## 🚀 Getting Started
+##  Getting Started
 
 ### Prerequisites
 - Python 3.12+ 
