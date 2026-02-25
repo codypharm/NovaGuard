@@ -1,6 +1,6 @@
 # Nova Guard: Clinical Intelligence Engine
 
-![Nova Guard Landing Page](demo_data/landing_page.png)
+![Nova Guard Landing Page](demo_data/home_page.png)
 
 **Nova Guard** is a highly advanced, multi-modal clinical intelligence workbench designed specifically for pharmacists and clinical practitioners. Built natively on **Amazon Nova**, it seamlessly orchestrates clinical safety checks, precision dosing math, and complex patient histories to deliver actionable, transparent decision support.
 
