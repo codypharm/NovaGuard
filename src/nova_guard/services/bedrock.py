@@ -21,7 +21,7 @@ class BedrockClient:
     # Using v1 models as v2 seems restricted/unavailable for this account
     MODEL_MICRO = "nova-micro-v1"
     MODEL_LITE = "nova-2-lite-v1"
-    MODEL_PRO = "nova-pro-v1"
+    # MODEL_PRO = "nova-pro-v1"
 
     def _clean_json(self, text: str) -> str:
         """Removes markdown code blocks and ensures valid JSON string."""
@@ -178,7 +178,7 @@ class BedrockClient:
 
         try:
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=messages,
                 temperature=0.2
             )
@@ -284,7 +284,7 @@ class BedrockClient:
 
         try:
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": query}
@@ -351,7 +351,7 @@ class BedrockClient:
         prompt = f"Analyze drug-drug interactions for: {', '.join(drugs)}. Include CYP450 details and clinical action."
         try:
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO, # Upgraded to Pro for safety
+                model=self.MODEL_LITE, 
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.choices[0].message.content
@@ -531,7 +531,7 @@ class BedrockClient:
         try:
             prompt_data = f"Drug: {drug_name}\nPatient Profile: {profile_str}"
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt_data}
@@ -608,7 +608,7 @@ class BedrockClient:
 
             # OpenAI vision format: image_url with base64 data URI
             response = await self.openai_client.chat.completions.create(
-                model=self.MODEL_PRO,
+                model=self.MODEL_LITE,
                 messages=[
                     {
                         "role": "user",
