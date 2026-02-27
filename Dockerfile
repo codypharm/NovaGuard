@@ -48,6 +48,20 @@ COPY --from=builder /app/src /app/src
 COPY --from=builder /app/alembic /app/alembic
 COPY --from=builder /app/alembic.ini /app/alembic.ini
 
+# Create startup script
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
+    echo 'export DATABASE_URL="${DATABASE_URL}"' >> /app/start.sh && \
+    echo 'DB_HOST=$(echo $DATABASE_URL | sed -rn "s/.*@([^:]+):.*/\1/p")' >> /app/start.sh && \
+    echo 'DB_USER=$(echo $DATABASE_URL | sed -rn "s/.*:\\/\\/([^:]+):.*/\\1/p")' >> /app/start.sh && \
+    echo 'DB_PASS=$(echo $DATABASE_URL | sed -rn "s/.*:([^@]+)@.*/\\1/p")' >> /app/start.sh && \
+    echo 'DB_NAME=$(echo $DATABASE_URL | sed -rn "s/.*\\/(.+)$/\\1/p")' >> /app/start.sh && \
+    echo 'until PGPASSWORD=$DB_PASS psql -h $DB_HOST -U $DB_USER -c "SELECT 1" > /dev/null 2>&1; do sleep 2; done' >> /app/start.sh && \
+    echo 'PGPASSWORD=$DB_PASS psql -h $DB_HOST -U $DB_USER -d postgres -c "CREATE DATABASE $DB_NAME" 2>/dev/null || true' >> /app/start.sh && \
+    echo 'alembic upgrade head' >> /app/start.sh && \
+    echo 'exec uvicorn nova_guard.main:app --host 0.0.0.0 --port 8000' >> /app/start.sh && \
+    chmod +x /app/start.sh
+
 # Set virtual environment
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
@@ -61,8 +75,8 @@ USER appuser
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python -c "import httpx; httpx.get('http://localhost:8000/health', timeout=5)" || exit 1
 
-# Run server directly (skip alembic - run manually after)
-CMD ["uvicorn", "nova_guard.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run startup script
+CMD ["/app/start.sh"]
