@@ -103,3 +103,20 @@ jobs:
           aws ecs wait services-stable \
             --cluster ${{ secrets.ECS_CLUSTER }} \
             --services ${{ secrets.ECS_SERVICE }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create frontend env file
+        run: |
+          echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" > frontend/.env.production
+          echo "VITE_CLERK_PUBLISHABLE_KEY=${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}" >> frontend/.env.production
+
+      - name: Build and deploy frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+          aws s3 sync dist/ s3://${{ secrets.S3_BUCKET_FRONTEND }} --delete
