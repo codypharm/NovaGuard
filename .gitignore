@@ -28,6 +28,7 @@ wheels/
 # Environment
 .env
 .env.local
+.env.production
 
 # IDE
 .vscode/
