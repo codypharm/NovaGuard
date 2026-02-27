@@ -5,6 +5,15 @@ from typing import AsyncGenerator, Optional, List, Dict, Any
 import logging
 import os
 
+import boto3
+from botocore.config import Config
+from nova_guard.config import settings
+
+s3_client = boto3.client(
+    "s3", config=Config(signature_version="s3v4"), region_name=settings.aws_region or "us-east-2"
+)
+S3_BUCKET = settings.s3_bucket or "nova-guard-uploads-606756239465"
+
 # Configure logging to ensure we see INFO logs from all modules
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +46,7 @@ from nova_guard.schemas.patient import (
 from nova_guard.schemas.session import SessionResponse
 
 from dotenv import load_dotenv
+
 load_dotenv(override=True)
 
 
@@ -52,13 +62,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     try:
         # Read directly from environment variable
         database_url = os.getenv("DATABASE_URL")
-        
+
         if not database_url:
             raise ValueError("DATABASE_URL environment variable not set")
-        
+
         # Convert asyncpg to psycopg format for LangGraph
         conn_string = database_url.replace("postgresql+asyncpg://", "postgresql://")
-        
+
         # Mask password for logging
         if "@" in conn_string:
             parts = conn_string.split("@")
@@ -67,16 +77,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
                 user = credentials.split(":")[0]
                 masked = conn_string.replace(credentials, f"{user}:***")
                 logging.getLogger(__name__).info("Checkpointer connection: %s", masked)
-        
+
         async with AsyncPostgresSaver.from_conn_string(conn_string) as checkpointer:
             logging.getLogger(__name__).info("Initializing workflow with Postgres persistence")
             app.state.prescription_workflow = create_prescription_workflow(checkpointer)
-            
+
             await checkpointer.setup()
-            
+
             logging.getLogger(__name__).info("Ensuring database tables")
             from nova_guard.database import Base
             import nova_guard.models.audit  # noqa: F401 — register AuditLog table
+
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
@@ -88,6 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
     finally:
         logging.getLogger(__name__).info("Nova Clinical Guard shutting down")
+
 
 app = FastAPI(
     title="Nova Clinical Guard",
@@ -110,6 +122,7 @@ app.add_middleware(
 # Health Check
 # ============================================================================
 
+
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
@@ -122,22 +135,25 @@ async def health_check():
 
 from nova_guard.services.nova_voice import transcribe_audio_stream
 
+
 @app.post("/transcribe")
 async def transcribe_audio(file: UploadFile = File(...)):
     """Transcribe uploaded audio file using Nova Realtime API."""
     try:
         audio_bytes = await file.read()
-        
+
         # Simple heuristic: If WAV, strip header (44 bytes standard, but can vary)
         # Nova expects raw PCM 16-bit 24kHz.
-        is_wav = file.content_type == "audio/wav" or (file.filename and file.filename.endswith(".wav"))
-        
+        is_wav = file.content_type == "audio/wav" or (
+            file.filename and file.filename.endswith(".wav")
+        )
+
         if is_wav and len(audio_bytes) > 44:
-             # Strip minimal 44-byte header. Ideally we'd parse RIFF but this is robust enough for our known frontend recorder
-             raw_pcm = audio_bytes[44:] 
+            # Strip minimal 44-byte header. Ideally we'd parse RIFF but this is robust enough for our known frontend recorder
+            raw_pcm = audio_bytes[44:]
         else:
-             raw_pcm = audio_bytes
-             
+            raw_pcm = audio_bytes
+
         transcript = await transcribe_audio_stream(raw_pcm)
         return {"text": transcript}
     except Exception as e:
@@ -148,6 +164,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
 # ============================================================================
 # Patient Endpoints
 # ============================================================================
+
 
 @app.post("/patients", response_model=PatientResponse, status_code=201)
 async def create_patient(
@@ -209,6 +226,7 @@ async def list_patients(
 # Drug History Endpoints
 # ============================================================================
 
+
 @app.post("/patients/{patient_id}/drugs", response_model=DrugHistoryResponse, status_code=201)
 async def add_drug_to_history(
     patient_id: int,
@@ -220,7 +238,7 @@ async def add_drug_to_history(
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
+
     # Override patient_id from path
     drug.patient_id = patient_id
     return await patient_crud.add_drug_to_history(db, drug)
@@ -229,6 +247,7 @@ async def add_drug_to_history(
 # ============================================================================
 # Allergy Endpoints
 # ============================================================================
+
 
 @app.post("/patients/{patient_id}/allergies", response_model=AllergyResponse, status_code=201)
 async def add_allergy(
@@ -241,7 +260,7 @@ async def add_allergy(
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
+
     # Override patient_id from path
     allergy.patient_id = patient_id
     return await patient_crud.add_allergy(db, allergy)
@@ -250,6 +269,7 @@ async def add_allergy(
 # ============================================================================
 # Adverse Reaction Endpoints
 # ============================================================================
+
 
 @app.post(
     "/patients/{patient_id}/adverse-reactions",
@@ -266,7 +286,7 @@ async def add_adverse_reaction(
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
+
     # Override patient_id from path
     reaction.patient_id = patient_id
     return await patient_crud.add_adverse_reaction(db, reaction)
@@ -275,6 +295,7 @@ async def add_adverse_reaction(
 # ============================================================================
 # Lab Results Endpoints
 # ============================================================================
+
 
 @app.post("/patients/{patient_id}/labs", response_model=LabResultResponse, status_code=201)
 async def add_lab_result(
@@ -285,9 +306,10 @@ async def add_lab_result(
     """Add a manual lab result."""
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
-         raise HTTPException(status_code=404, detail="Patient not found")
+        raise HTTPException(status_code=404, detail="Patient not found")
     lab.patient_id = patient_id
     return await patient_crud.add_lab_result(db, lab)
+
 
 @app.post("/labs/scan", response_model=list[LabResultCreate])
 async def scan_lab_results(
@@ -296,28 +318,30 @@ async def scan_lab_results(
     """Scan an image of lab results and extract biomarkers without saving."""
     image_bytes = await file.read()
     from nova_guard.services.bedrock import BedrockClient
+
     bedrock = BedrockClient()
-    
+
     extracted = await bedrock.process_lab_image(image_bytes)
     results = []
-    
+
     for item in extracted:
         try:
             value = float(item.get("value", 0.0))
         except (ValueError, TypeError):
             value = 0.0
-            
+
         lab_create = LabResultCreate(
             test_name=item.get("test_name", "Unknown"),
             value=value,
             unit=item.get("unit", ""),
             reference_range=item.get("reference_range"),
             is_abnormal=item.get("is_abnormal", False),
-            source="vision"
+            source="vision",
         )
         results.append(lab_create)
-        
+
     return results
+
 
 @app.get("/patients/{patient_id}/labs", response_model=list[LabResultResponse])
 async def get_patient_labs(
@@ -326,8 +350,9 @@ async def get_patient_labs(
 ):
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
-         raise HTTPException(status_code=404, detail="Patient not found")
+        raise HTTPException(status_code=404, detail="Patient not found")
     return patient.lab_results
+
 
 @app.delete("/patients/{patient_id}/labs/{lab_id}", status_code=204)
 async def delete_patient_lab(
@@ -339,17 +364,19 @@ async def delete_patient_lab(
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    
+
     success = await patient_crud.delete_lab_result(db, lab_id)
     if not success:
         raise HTTPException(status_code=404, detail="Lab result not found")
-        
+
     await db.commit()
     return None
+
 
 # ============================================================================
 # Genetic Markers Endpoints
 # ============================================================================
+
 
 @app.post("/patients/{patient_id}/genetics", response_model=GeneticMarkerResponse, status_code=201)
 async def add_genetic_marker(
@@ -360,9 +387,10 @@ async def add_genetic_marker(
     """Add a genetic marker (PGx)."""
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
-         raise HTTPException(status_code=404, detail="Patient not found")
+        raise HTTPException(status_code=404, detail="Patient not found")
     marker.patient_id = patient_id
     return await patient_crud.add_genetic_marker(db, marker)
+
 
 @app.get("/patients/{patient_id}/genetics", response_model=list[GeneticMarkerResponse])
 async def get_patient_genetics(
@@ -371,7 +399,7 @@ async def get_patient_genetics(
 ):
     patient = await patient_crud.get_patient(db, patient_id)
     if not patient:
-         raise HTTPException(status_code=404, detail="Patient not found")
+        raise HTTPException(status_code=404, detail="Patient not found")
     return patient.genetic_markers
 
 
@@ -380,31 +408,36 @@ async def get_patient_genetics(
 # ============================================================================
 
 from pydantic import BaseModel
+
+
 class TTSRequest(BaseModel):
     text: str
+
 
 @app.post("/tts")
 async def process_tts(request: TTSRequest):
     """Generate audio from text using Nova Sonic TTS."""
     from nova_guard.services.nova_tts import generate_speech
     from fastapi.responses import Response
-    
+
     audio_bytes = await generate_speech(request.text)
     if not audio_bytes:
         raise HTTPException(status_code=500, detail="Failed to generate audio")
-        
+
     return Response(content=audio_bytes, media_type="audio/wav")
+
 
 # ============================================================================
 # PDF Clinical Report Endpoint
 # ============================================================================
+
 
 @app.get("/sessions/{session_id}/report")
 async def get_session_report(
     session_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     from nova_guard.api.sessions import get_session
     from nova_guard.services.report_service import generate_audit_report
@@ -413,25 +446,27 @@ async def get_session_report(
     session = await get_session(db, session_id)
     if not session or session.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Session not found")
-        
+
     workflow = request.app.state.prescription_workflow
     config = {"configurable": {"thread_id": session_id}}
     state_snapshot = await workflow.aget_state(config)
-    
+
     if not state_snapshot:
-        raise HTTPException(status_code=404, detail="No clinical interaction history found for this session.")
-        
+        raise HTTPException(
+            status_code=404, detail="No clinical interaction history found for this session."
+        )
+
     state = state_snapshot.values
     pdf_bytes = generate_audit_report(session_id, state)
-    
-    headers = {
-        "Content-Disposition": f"attachment; filename=NovaGuard_Audit_{session_id[:8]}.pdf"
-    }
+
+    headers = {"Content-Disposition": f"attachment; filename=NovaGuard_Audit_{session_id[:8]}.pdf"}
     return Response(content=pdf_bytes, media_type="application/pdf", headers=headers)
+
 
 # ============================================================================
 # Prescription Processing Endpoint (LangGraph Workflow)
 # ============================================================================
+
 
 @app.post("/clinical-interaction/process")
 async def process_clinical_interaction(
@@ -442,83 +477,81 @@ async def process_clinical_interaction(
     db: AsyncSession = Depends(get_db),
     # For Form data, we need to extract the token manually or use a workaround as Depends headers don't strictly mix well with Form
     # However, FastAPI handles Bearer token in headers fine even with Form data.
-    current_user: User = Depends(get_current_user), 
+    current_user: User = Depends(get_current_user),
     request: Request = None,  # Added to access app.state
 ):
     """
-    Unified endpoint for all clinical interactions. 
+    Unified endpoint for all clinical interactions.
     Handles images, text prescriptions, and assistant follow-ups.
     """
     # from nova_guard.graph.workflow import prescription_workflow
     from langchain_core.messages import HumanMessage
-    
+
     # 1. Prepare Input Data
     image_bytes = await file.read() if file else None
-    
-    # 2. Initialize State 
+
+    # 2. Initialize State
     initial_messages = []
     if prescription_text:
         initial_messages.append(HumanMessage(content=prescription_text))
-    
+
     initial_state = {
         "patient_id": patient_id,
         "prescription_text": prescription_text,
         "prescription_image": image_bytes,
         "messages": initial_messages,
     }
-    
+
     # 3. Session Management
     # Ensure session exists and link to patient if provided OR update title with content
     preview_text = prescription_text or ("Image Uploaded" if file else "New Session")
-    
+
     session = await session_crud.update_session_patient(
-        db, 
-        session_id, 
-        current_user.id,
-        patient_id, 
-        preview_text=preview_text
+        db, session_id, current_user.id, patient_id, preview_text=preview_text
     )
-    
+
     if not session:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
 
     # 4. Execution Config
     config = {"configurable": {"thread_id": session_id}}
-    
+
     result = None
     last_msg = None
 
     # Helper to extract string from message
     def get_msg_content(msg):
-        if hasattr(msg, "content"): return msg.content
-        if isinstance(msg, dict): return msg.get("content", str(msg))
+        if hasattr(msg, "content"):
+            return msg.content
+        if isinstance(msg, dict):
+            return msg.get("content", str(msg))
         return str(msg)
 
     try:
         # Initial invocation triggers the Gateway Supervisor
         workflow = request.app.state.prescription_workflow
         result = await workflow.ainvoke(initial_state, config)
-        
+
         # 4. Handle Human-in-the-Loop (HITL) for Extraction
         # If the graph is waiting for confirmation, we return the current state
         state_snapshot = await workflow.aget_state(config)
-        
+
         if state_snapshot.next:
             # The graph is paused (likely at fetch_patient for verification)
             return {
                 "status": "awaiting_verification",
                 "extracted_data": result.get("extracted_data"),
-                "intent": result.get("intent")
+                "intent": result.get("intent"),
             }
 
         last_msg = result.get("messages", [])[-1] if result.get("messages") else None
-        
+
         # Check for AI failure message
         is_failure = False
         content = get_msg_content(last_msg) if last_msg else ""
         if content and (
-            content == "I'm sorry, I'm having trouble processing that clinical question right now." or
-            "**System Notice**" in content
+            content == "I'm sorry, I'm having trouble processing that clinical question right now."
+            or "**System Notice**" in content
         ):
             is_failure = True
 
@@ -527,7 +560,7 @@ async def process_clinical_interaction(
             "intent": result.get("intent"),
             "verdict": result.get("verdict") if not is_failure else None,
             "assistant_response": content,
-            "safety_flags": result.get("safety_flags", []) if not is_failure else []
+            "safety_flags": result.get("safety_flags", []) if not is_failure else [],
         }
 
     except Exception as e:
@@ -542,6 +575,7 @@ async def process_clinical_interaction(
         # Non-blocking audit log — never fails the user request
         try:
             from nova_guard.services.audit_service import log_interaction
+
             resp_text = get_msg_content(last_msg)[:500] if last_msg else None
             verdict_obj = result.get("verdict") if result else None
             await log_interaction(
@@ -602,34 +636,39 @@ async def stream_clinical_interaction(
 
     image_bytes = None
     image_url = None
-    
+
     if file:
         image_bytes = await file.read()
-        
-        # Save file locally for persistence (served by Vite from public/)
-        file_ext = file.filename.split('.')[-1] if '.' in file.filename else "jpg"
+
+        file_ext = file.filename.split(".")[-1] if "." in file.filename else "jpg"
         unique_filename = f"{uuid.uuid4()}.{file_ext}"
-        upload_dir = "frontend/public/uploads"
-        file_path = os.path.join(upload_dir, unique_filename)
-        
-        # Ensure dir exists (in case it wasn't created yet)
-        os.makedirs(upload_dir, exist_ok=True)
-        
-        async with aiofiles.open(file_path, 'wb') as out_file:
-            await out_file.write(image_bytes)
-            
-        # URL path relative to web root
-        image_url = f"/uploads/{unique_filename}"
+
+        # Use S3 if configured, otherwise local storage
+        if settings.s3_bucket:
+            s3_client.put_object(
+                Bucket=settings.s3_bucket,
+                Key=unique_filename,
+                Body=image_bytes,
+                ContentType=file.content_type or "image/jpeg",
+            )
+            image_url = f"https://{settings.s3_bucket}.s3.amazonaws.com/{unique_filename}"
+        else:
+            upload_dir = "frontend/public/uploads"
+            os.makedirs(upload_dir, exist_ok=True)
+            file_path = os.path.join(upload_dir, unique_filename)
+            async with aiofiles.open(file_path, "wb") as out_file:
+                await out_file.write(image_bytes)
+            image_url = f"/uploads/{unique_filename}"
 
     initial_messages = []
-    
+
     # Construct message with text + image markdown if available
     content_parts = []
     if image_url:
         content_parts.append(f"![Prescription Image]({image_url})")
     if prescription_text:
         content_parts.append(prescription_text)
-        
+
     if content_parts:
         full_content = "\n\n".join(content_parts)
         initial_messages.append(HumanMessage(content=full_content))
@@ -656,8 +695,10 @@ async def stream_clinical_interaction(
     _query_text = (prescription_text or "")[:500]
 
     def get_msg_content(msg):
-        if hasattr(msg, "content"): return msg.content
-        if isinstance(msg, dict): return msg.get("content", str(msg))
+        if hasattr(msg, "content"):
+            return msg.content
+        if isinstance(msg, dict):
+            return msg.get("content", str(msg))
         return str(msg)
 
     async def event_generator():
@@ -683,11 +724,12 @@ async def stream_clinical_interaction(
             # ── Stream complete ──
             if result:
                 last_msg = result.get("messages", [])[-1] if result.get("messages") else None
+
                 # Helper to serialize Pydantic models
                 def _serialize(obj):
                     if hasattr(obj, "model_dump"):
                         return obj.model_dump()
-                    if hasattr(obj, "dict"): # Pydantic v1 fallback
+                    if hasattr(obj, "dict"):  # Pydantic v1 fallback
                         return obj.dict()
                     return obj
 
@@ -698,7 +740,7 @@ async def stream_clinical_interaction(
                     "verdict": _serialize(result.get("verdict")),
                     "assistant_response": get_msg_content(last_msg) if last_msg else None,
                     "safety_flags": [_serialize(f) for f in result.get("safety_flags", [])],
-                    "prescriptions": [_serialize(p) for p in result.get("prescriptions", [])]
+                    "prescriptions": [_serialize(p) for p in result.get("prescriptions", [])],
                 }
                 yield f"data: {_json.dumps(final, default=str)}\n\n"
             else:
@@ -718,6 +760,7 @@ async def stream_clinical_interaction(
             try:
                 from nova_guard.services.audit_service import log_interaction
                 from nova_guard.database import AsyncSessionLocal
+
                 async with AsyncSessionLocal() as audit_db:
                     resp_text = get_msg_content(last_msg)[:500] if last_msg else None
                     verdict_obj = result.get("verdict") if result else None
@@ -729,7 +772,9 @@ async def stream_clinical_interaction(
                         intent=result.get("intent") if result else None,
                         query=_query_text,
                         response_summary=resp_text,
-                        verdict_status=verdict_obj.get("status") if isinstance(verdict_obj, dict) else None,
+                        verdict_status=verdict_obj.get("status")
+                        if isinstance(verdict_obj, dict)
+                        else None,
                         flag_count=len(result.get("safety_flags", [])) if result else 0,
                     )
             except Exception:
@@ -749,6 +794,7 @@ async def stream_clinical_interaction(
 # ============================================================================
 # Session Endpoints
 # ============================================================================
+
 
 @app.get("/sessions", response_model=list[SessionResponse])
 async def list_recent_sessions(
@@ -791,6 +837,7 @@ async def delete_session(
 # Natural Language Query Endpoint
 # ============================================================================
 
+
 @app.get("/query")
 async def natural_language_query(
     q: str,
@@ -798,14 +845,14 @@ async def natural_language_query(
 ):
     """
     Natural language query interface for patient safety checks.
-    
+
     Examples:
     - GET /query?q=is patient 1 allergic to paracetamol
     - GET /query?q=does john doe id 123 have penicillin allergy
     - GET /query?q=check if patient 1 has aspirin allergy
     """
     from nova_guard.services.nlp import parse_allergy_query
-    
+
     result = await parse_allergy_query(q, db)
     return result
 
@@ -822,51 +869,67 @@ async def get_session_history(
     session = await session_crud.get_session(db, session_id)
     if session and session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized to access this session")
-        
+
     workflow = request.app.state.prescription_workflow
     config = {"configurable": {"thread_id": session_id}}
-    
+
     try:
         # Get state from checkpointer
         state_snapshot = await workflow.aget_state(config)
         if not state_snapshot.values:
             return []
-            
+
         messages = state_snapshot.values.get("messages", [])
-        
+
         # Transform to frontend format
         history = []
-        
+
         # Phrases to filter out (internal system logs)
         ignored_prefixes = [
             "Intent classified as",
-            "✅", "❌", "⚠️", "🔍", "💊", "🔗", "📄", "📷", "🎤", "⌨️", 
-            "Verdict:", "Audit (history):"
+            "✅",
+            "❌",
+            "⚠️",
+            "🔍",
+            "💊",
+            "🔗",
+            "📄",
+            "📷",
+            "🎤",
+            "⌨️",
+            "Verdict:",
+            "Audit (history):",
         ]
-        
+
         for msg in messages:
             role = "user" if msg.type == "human" else "assistant"
             content = msg.content
-            
-            # Skip internal system logs for the frontend
-            if role == "assistant" and any(str(content).strip().startswith(p) for p in ignored_prefixes):
-                continue
 
+            # Skip internal system logs for the frontend
+            if role == "assistant" and any(
+                str(content).strip().startswith(p) for p in ignored_prefixes
+            ):
+                continue
 
             # Simple ID generation (in reality, msg.id might exist or we use index)
             msg_id = getattr(msg, "id", f"{role}-{len(history)}")
-            
-            history.append({
-                "id": msg_id,
-                "role": role,
-                "content": content,
-                "timestamp": getattr(msg, "timestamp", None) # Timestamp might not be directly on msg
-            })
-            
+
+            history.append(
+                {
+                    "id": msg_id,
+                    "role": role,
+                    "content": content,
+                    "timestamp": getattr(
+                        msg, "timestamp", None
+                    ),  # Timestamp might not be directly on msg
+                }
+            )
+
         return history
     except Exception as e:
         logging.getLogger(__name__).error("Error fetching history: %s", e)
         return []
+
 
 # ============================================================================
 # Clinical Tools Endpoints
@@ -879,6 +942,7 @@ import json
 # Initialize the service
 clinical_service = ClinicalTools()
 
+
 class CrClRequest(BaseModel):
     age: int
     weight_kg: float
@@ -887,16 +951,20 @@ class CrClRequest(BaseModel):
     sex: str
     drug_name: Optional[str] = None
 
+
 class InteractionRequest(BaseModel):
     drugs: list[str]
+
 
 class MedicationItem(BaseModel):
     name: str
     dosage: Optional[str] = None
     duration: Optional[str] = None
 
+
 class SafetyRequest(BaseModel):
     medications: List[MedicationItem]
+
 
 @app.post("/clinical/calculate-crcl")
 async def calculate_crcl(data: CrClRequest):
@@ -905,15 +973,18 @@ async def calculate_crcl(data: CrClRequest):
         data.age, data.weight_kg, data.height_cm, data.scr, data.sex, data.drug_name
     )
 
+
 @app.post("/clinical/interactions")
 async def check_interactions(data: InteractionRequest):
     """Get AI-driven interaction insights (Markdown)."""
     return await clinical_service.get_interaction_insights(data.drugs)
 
+
 @app.get("/clinical/substitutions/{drug_name}")
 async def get_substitutions(drug_name: str):
     """Get therapeutic equivalents (Markdown)."""
     return await clinical_service.get_equivalents(drug_name)
+
 
 @app.post("/clinical/safety-profile")
 async def get_safety_profile(request: SafetyRequest):
@@ -924,6 +995,7 @@ async def get_safety_profile(request: SafetyRequest):
 # ============================================================================
 # Audit Log Endpoint
 # ============================================================================
+
 
 @app.get("/audit-log")
 async def get_audit_log(

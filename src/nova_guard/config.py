@@ -15,17 +15,20 @@ class Settings(BaseSettings):
     # Application
     log_level: str = "INFO"
     environment: str = "development"
-    
+
     # AWS
     aws_region: str = "us-east-2"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
-    
+
     # Nova API (OpenAI Compatible)
     nova_api_key: str | None = None
 
     # Valyu Bio Search
     valyu_api_key: str | None = None
+
+    # S3 Bucket for uploads
+    s3_bucket: str | None = None
 
     model_config = SettingsConfigDict(
         env_file=".env",
