@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
     logging.getLogger(__name__).info("Nova Clinical Guard starting up")
 
     try:
-        # Read directly from environment variable
         database_url = os.getenv("DATABASE_URL")
 
         if not database_url:
@@ -68,6 +67,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:
 
         # Convert asyncpg to psycopg format for LangGraph
         conn_string = database_url.replace("postgresql+asyncpg://", "postgresql://")
+
+        # Auto-create database if it doesn't exist
+        try:
+            import psycopg
+
+            # Connect to default 'postgres' database to create nova_guard db
+            postgres_conn_string = conn_string.rsplit("/", 1)[0] + "/postgres"
+            db_name = conn_string.rsplit("/", 1)[1]
+            conn = await psycopg.AsyncConnection.connect(postgres_conn_string, autocommit=True)
+            try:
+                await conn.execute(f'CREATE DATABASE "{db_name}"')
+                logging.getLogger(__name__).info("Created database: %s", db_name)
+            except Exception:
+                logging.getLogger(__name__).info("Database already exists: %s", db_name)
+            finally:
+                await conn.close()
+        except Exception as e:
+            logging.getLogger(__name__).warning("Could not auto-create database: %s", e)
 
         # Mask password for logging
         if "@" in conn_string:
