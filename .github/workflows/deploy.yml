@@ -110,6 +110,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
       - name: Create frontend env file
         run: |
           echo "VITE_API_URL=${{ secrets.VITE_API_URL }}" > frontend/.env.production
@@ -118,6 +121,6 @@ jobs:
       - name: Build and deploy frontend
         working-directory: ./frontend
         run: |
-          npm install
-          npm run build
+          bun install
+          bun run build
           aws s3 sync dist/ s3://${{ secrets.S3_BUCKET_FRONTEND }} --delete
