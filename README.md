@@ -134,10 +134,11 @@ Nova Guard features a built-in strict de-identification node. Before any patient
 
 ##  Technology Stack
 
-- **AI Reasoning & Multimodal:** Amazon Nova (Text, Vision)
+- **AI Reasoning & Multimodal:** Amazon Nova API (Nova Micro, Nova 2 Lite, Nova Sonic)
 - **Agent Orchestration:** LangGraph & LangChain
 - **Backend:** Python, FastAPI, SQLAlchemy
 - **Database:** PostgreSQL (async)
+- **Storage:** Amazon S3 (file uploads & audio)
 - **Frontend:** React, TypeScript, Tailwind CSS, shadcn/ui, Framer Motion
 - **External Clinical Integrations:** OpenFDA, NIH RxNorm, DailyMed
 
@@ -149,7 +150,7 @@ Nova Guard features a built-in strict de-identification node. Before any patient
 - Python 3.12+ 
 - Node.js (via `bun` or `npm`)
 - PostgreSQL database
-- AWS Account configured with Bedrock access for Amazon Nova models
+- Amazon Nova API key (`NOVA_API_KEY`)
 
 ### Backend Setup
 ```bash
@@ -179,7 +180,7 @@ cd frontend
 bun install
 
 # Set up environment variables
-cp .env.local.example .env.local
+cp .env.example .env.local
 # Edit .env.local with your Clerk publishing keys and VITE_API_URL
 
 # Start the dev server
