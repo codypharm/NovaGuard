@@ -128,7 +128,12 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://nova-guard-frontend-606756239465.s3-website.us-east-2.amazonaws.com",
+        "https://nova-guard-frontend-606756239465.s3-website.us-east-2.amazonaws.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
